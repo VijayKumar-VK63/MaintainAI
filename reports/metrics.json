@@ -42,8 +42,24 @@
    }
   },
   "base": {
-   "status": "pending",
-   "label": "Qwen2.5-3B base (Colab nb 06, measured)"
+   "status": "measured",
+   "label": "Qwen2.5-3B base (Colab nb 06, measured)",
+   "metrics": {
+    "n": 100,
+    "risk_accuracy": 0.0,
+    "condition_accuracy": 0.0,
+    "evidence_f1_mean": 0.0,
+    "recommendation_accuracy": 0.0,
+    "validity_rate": 0.0,
+    "uncertainty_skill": {
+     "unknown_admits_uncertainty": null,
+     "known_confident": null,
+     "n_unknown": 0
+    },
+    "latency_mean_ms": 0.0,
+    "n_failures": 100,
+    "backend": "hf:Qwen/Qwen2.5-3B-Instruct"
+   }
   },
   "finetuned": {
    "status": "pending",
@@ -51,7 +67,6 @@
   }
  },
  "notes": [
-  "base: unmeasured \u2014 run the corresponding notebook/script first",
   "finetuned: unmeasured \u2014 run the corresponding notebook/script first"
  ]
 }

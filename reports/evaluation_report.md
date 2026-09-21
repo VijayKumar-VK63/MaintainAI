@@ -10,9 +10,8 @@
 |---|---|---|---|---|---|---|
  | demo | 1.000 | 0.730 | 0.235 | 1.000 | 1.000 | 0.008 | 
  | pipeline_check | 0.000 | 0.000 | 0.000 | 0.000 | 0.000 | 16651.854 | 
-| base | pending | pending | pending | pending | pending | pending |
+ | base | 0.000 | 0.000 | 0.000 | 0.000 | 0.000 | 0.000 | 
 | finetuned | pending | pending | pending | pending | pending | pending |
 
 ## Notes
-- base: unmeasured — run the corresponding notebook/script first
 - finetuned: unmeasured — run the corresponding notebook/script first
