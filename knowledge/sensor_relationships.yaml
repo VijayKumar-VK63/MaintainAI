@@ -1,0 +1,10 @@
+# Informative sensor relationships for FD001 HPC degradation (Saxena et al. PHM08 context).
+# Constant/uninformative sensors in FD001: s1, s5, s6, s10, s16, s18, s19.
+informative_sensors: ["s2", "s3", "s4", "s7", "s8", "s9", "s11", "s12", "s13", "s14", "s15", "s17", "s20", "s21"]
+relationships:
+  - sensors: ["s3", "s4"]
+    meaning: "HPC outlet / LPT outlet temperatures rise with compressor degradation."
+  - sensors: ["s9", "s14"]
+    meaning: "Physical / corrected core speed shifts under HPC fault."
+  - sensors: ["s7", "s11", "s12"]
+    meaning: "HPC pressures and fuel-flow ratio drift with efficiency loss."

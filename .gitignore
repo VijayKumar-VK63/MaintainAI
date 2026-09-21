@@ -1,0 +1,12 @@
+.env
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+notebooks/executed_*.ipynb
+data/processed/
+data/raw/
+models/predictive/*.joblib
+models/slm/
+experiments/*/checkpoints/
+*.parquet
+*.faiss

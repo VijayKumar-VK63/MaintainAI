@@ -1,0 +1,17 @@
+{
+ "n": 5,
+ "risk_accuracy": 0.0,
+ "condition_accuracy": 0.0,
+ "evidence_f1_mean": 0.0,
+ "recommendation_accuracy": 0.0,
+ "validity_rate": 0.0,
+ "uncertainty_skill": {
+  "unknown_admits_uncertainty": null,
+  "known_confident": null,
+  "n_unknown": 0
+ },
+ "latency_mean_ms": 16651.85404,
+ "n_failures": 5,
+ "backend": "hf:HuggingFaceTB/SmolLM2-135M",
+ "note": "pipeline validation on 135M base; NOT the Qwen2.5-3B baseline"
+}

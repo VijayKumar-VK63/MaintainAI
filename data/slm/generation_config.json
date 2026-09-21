@@ -1,0 +1,11 @@
+{
+ "seed": 42,
+ "per_engine": {
+  "train": 8,
+  "val": 7,
+  "test": 1
+ },
+ "model_version": "rul-xgb-clf-v1",
+ "threshold": 0.6500000000000001,
+ "rules": "src/slm_dataset.py::derive_target"
+}

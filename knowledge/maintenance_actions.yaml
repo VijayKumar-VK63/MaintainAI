@@ -1,0 +1,11 @@
+# Decision-support actions only. Human maintenance professional decides and acts.
+actions:
+  routine_monitoring:
+    description: "Continue operation; review at next scheduled check."
+    when: "LOW risk, high RUL"
+  priority_inspection:
+    description: "Schedule HPC/combustor inspection at next maintenance window."
+    when: "MEDIUM-HIGH risk or falling RUL"
+  immediate_review:
+    description: "Escalate for immediate engineering review; do not command machinery."
+    when: "CRITICAL risk or very low RUL"

@@ -1,0 +1,22 @@
+slm:
+  # Deployment: remote inference preferred; local 3B on free CPU is NOT expected to work.
+  # SLMService must fall back to demo mode with an explicit banner (see docs/DEPLOYMENT.md).
+  model_name: "Qwen/Qwen2.5-3B-Instruct"
+  quantization: "4bit"
+  adapter_path: null
+  inference_endpoint: null
+  max_new_tokens: 256
+  temperature: 0.2
+
+predictive:
+  model_version: "v0-unset"
+  model_path: "models/predictive/failure_model.joblib"
+  decision_threshold: 0.5
+
+simulation:
+  default_machine: "M001"
+  seed: 42
+
+api:
+  host: "0.0.0.0"
+  port: 8000

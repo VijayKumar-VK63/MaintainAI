@@ -1,0 +1,12 @@
+# FD001-grounded failure modes (single fault mode: HPC degradation).
+# Sources: CMAPSS readme + Saxena et al. PHM08. Evidence-scoped: no invented modes.
+conditions:
+  - id: healthy_operation
+    description: "Early-life operation; sensors near unit baseline."
+    typical_evidence: ["residuals_near_baseline", "low_failure_probability", "high_rul"]
+  - id: hpc_degradation
+    description: "High-pressure compressor efficiency loss; core temp/pressure drift."
+    typical_evidence: ["s3_temp_hpc_outlet_rising", "s4_temp_lpt_outlet_rising", "s9_core_speed_shift"]
+  - id: unknown_anomaly
+    description: "Off-baseline behavior not matching documented HPC pattern."
+    typical_evidence: ["insufficient_evidence"]

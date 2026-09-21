@@ -1,0 +1,57 @@
+{
+ "systems": {
+  "demo": {
+   "status": "measured",
+   "label": "demo-fallback rule-mirror (local, measured)",
+   "metrics": {
+    "n": 100,
+    "risk_accuracy": 1.0,
+    "condition_accuracy": 0.73,
+    "evidence_f1_mean": 0.23500000000000004,
+    "recommendation_accuracy": 1.0,
+    "validity_rate": 1.0,
+    "uncertainty_skill": {
+     "unknown_admits_uncertainty": 0.09090909090909091,
+     "known_confident": 0.01282051282051282,
+     "n_unknown": 22
+    },
+    "latency_mean_ms": 0.007950999999906116,
+    "n_failures": 0,
+    "backend": "demo-fallback"
+   }
+  },
+  "pipeline_check": {
+   "status": "measured",
+   "label": "135M HF path validation (local, measured)",
+   "metrics": {
+    "n": 5,
+    "risk_accuracy": 0.0,
+    "condition_accuracy": 0.0,
+    "evidence_f1_mean": 0.0,
+    "recommendation_accuracy": 0.0,
+    "validity_rate": 0.0,
+    "uncertainty_skill": {
+     "unknown_admits_uncertainty": null,
+     "known_confident": null,
+     "n_unknown": 0
+    },
+    "latency_mean_ms": 16651.85404,
+    "n_failures": 5,
+    "backend": "hf:HuggingFaceTB/SmolLM2-135M",
+    "note": "pipeline validation on 135M base; NOT the Qwen2.5-3B baseline"
+   }
+  },
+  "base": {
+   "status": "pending",
+   "label": "Qwen2.5-3B base (Colab nb 06, measured)"
+  },
+  "finetuned": {
+   "status": "pending",
+   "label": "Qwen2.5-3B+LoRA (Colab nb 08, measured)"
+  }
+ },
+ "notes": [
+  "base: unmeasured \u2014 run the corresponding notebook/script first",
+  "finetuned: unmeasured \u2014 run the corresponding notebook/script first"
+ ]
+}

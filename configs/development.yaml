@@ -1,0 +1,37 @@
+slm:
+  model_name: "Qwen/Qwen2.5-3B-Instruct"
+  quantization: "4bit"
+  adapter_path: null
+  max_new_tokens: 512
+  temperature: 0.2
+  max_seq_length: 1024
+  trust_remote_code: false
+
+predictive:
+  model_version: "v0-unset"
+  model_path: "models/predictive/failure_model.joblib"
+  scaler_path: "models/predictive/scaler.joblib"
+  feature_schema: "models/predictive/feature_schema.json"
+  decision_threshold: 0.5
+  rul_cap: 125
+  feature_window: 30
+
+simulation:
+  default_machine: "M001"
+  machines: ["M001", "M002", "M003"]
+  seed: 42
+  tick_seconds: 1.0
+
+api:
+  host: "127.0.0.1"
+  port: 8000
+
+dataset:
+  name: "cmapss-fd001"
+  raw_dir: "CMAPSSData"
+  subset: "FD001"
+  processed_dir: "data/processed"
+
+logging:
+  level: "INFO"
+  format: "json"

@@ -1,0 +1,12 @@
+# exp_001 — Qwen2.5-3B QLoRA (THE experiment; runs in Colab, NOT locally)
+
+Copied from `configs/training.yaml` at launch time. Status: PENDING GPU.
+Local CPU smoke test lives in `exp_001-smoke/` (validates the loop only).
+
+model: Qwen/Qwen2.5-3B-Instruct
+quantization: 4bit-NF4
+lora: {r: 16, alpha: 32, dropout: 0.05}
+lr: 2.0e-4, epochs: 3, batch: 1, grad_accum: 4, max_seq: 1024, seed: 42
+data: data/slm/train.jsonl (640) / val.jsonl (140); test.jsonl NEVER trained on
+output: /content/drive/MyDrive/MaintainAI/slm/checkpoints/exp_001
+launch: python -m src.train_slm --config configs/training.yaml

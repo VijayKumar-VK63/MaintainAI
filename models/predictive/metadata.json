@@ -1,0 +1,1 @@
+{"model_version": "rul-xgb-clf-v1", "decision_threshold": 0.6500000000000001, "horizon_cycles": 30, "rul_cap": 125, "regressor": "XGBRegressor(300,depth6)", "classifier": "XGBClassifier(300,depth4)", "seed": 42}

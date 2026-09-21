@@ -1,0 +1,34 @@
+slm:
+  model_name: "Qwen/Qwen2.5-3B-Instruct"
+  quantization: "4bit"
+  adapter_path: null
+  max_new_tokens: 512
+  temperature: 0.2
+  max_seq_length: 1024
+  trust_remote_code: false
+  # QLoRA hyperparameters (Smoke test values; full run in notebooks/07)
+  lora_r: 16
+  lora_alpha: 32
+  lora_dropout: 0.05
+  learning_rate: 2.0e-4
+  num_train_epochs: 1
+  per_device_train_batch_size: 1
+  gradient_accumulation_steps: 4
+  warmup_steps: 20
+  seed: 42
+  output_dir: "/content/drive/MyDrive/MaintainAI/slm/checkpoints"
+
+predictive:
+  model_version: "v0-unset"
+  rul_cap: 125
+  test_size_engines: 0.2
+  random_seed: 42
+
+dataset:
+  name: "cmapss-fd001"
+  raw_dir: "CMAPSSData"
+  subset: "FD001"
+
+logging:
+  level: "INFO"
+  format: "json"
