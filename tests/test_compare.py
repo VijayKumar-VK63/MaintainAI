@@ -14,12 +14,12 @@ def test_pending_when_files_missing(tmp_path, monkeypatch):
 
 
 def test_measured_demo_flows_through():
-    c = build_comparison()  # repo has reports/metrics_demo.json
+    c = build_comparison()  # repo has reports/metrics_demo.json and metrics_base.json
     assert c["systems"]["demo"]["status"] == "measured"
     assert c["systems"]["demo"]["metrics"]["validity_rate"] == 1.0
-    assert c["systems"]["base"]["status"] == "pending"
+    assert c["systems"]["base"]["status"] == "measured"  # base model eval completed (notebook 06)
     md = render_markdown(c)
-    assert "1.000" in md and "pending" in md
+    assert "1.000" in md and "measured" in md
 
 
 def test_no_fabrication_keys():

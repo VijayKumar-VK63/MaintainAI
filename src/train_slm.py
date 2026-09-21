@@ -110,7 +110,7 @@ def train(config_path: str, smoke: bool = False, allow_cpu: bool = False) -> dic
 
     from trl import SFTConfig, SFTTrainer
     epochs = 1 if smoke else int(slm.get("num_train_epochs", 3))
-    args = SFTConfig(dataset_text_field="text", max_seq_length=max_len,
+    args = SFTConfig(dataset_text_field="text", max_length=max_len,
                      per_device_train_batch_size=int(slm.get("per_device_train_batch_size", 1)),
                      gradient_accumulation_steps=int(slm.get("gradient_accumulation_steps", 4)),
                      num_train_epochs=epochs, learning_rate=float(slm.get("learning_rate", 2e-4)),
