@@ -19,7 +19,7 @@
 |---|---|---|---|---|---|
 | demo-fallback rule-mirror | 1.000 | 0.730 | 0.235 | 1.000 | measured locally |
 | 135M base HF path check | 0.000 | 0.000 | 0.000 | 0.000 | measured locally (untrained tiny base echoes prompt — proves the harness path, not model quality) |
-| Qwen2.5-3B base | pending | pending | pending | pending | Colab nb 06 |
+| Qwen2.5-3B base | 0.000 | 0.000 | 0.000 | 0.000 | measured in Colab nb 06 |
 | Qwen2.5-3B + LoRA | pending | pending | pending | pending | Colab nb 08 |
 
 Combined machine-readable comparison: `reports/metrics.json`; narrative:
