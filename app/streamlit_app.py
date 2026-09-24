@@ -6,9 +6,16 @@ Simulated telemetry — research/demo system, not safety software.
 """
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
+# Ensure project root is in Python path for imports
+PROJECT_ROOT = Path(__file__).parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
 import json
 import time
-from pathlib import Path
 
 import plotly.graph_objects as go
 import streamlit as st
