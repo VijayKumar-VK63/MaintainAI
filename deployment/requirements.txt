@@ -1,7 +1,0 @@
-# Deployment requirements (includes vLLM for GPU inference)
-# Install: pip install -r deployment/requirements.txt
-
-vllm==0.4.2
-fastapi==0.110.0
-uvicorn==0.29.0
-pydantic==2.7.0
