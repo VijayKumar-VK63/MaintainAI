@@ -19,7 +19,7 @@ slm:
   output_dir: "/content/drive/MyDrive/MaintainAI/slm/checkpoints"
 
 predictive:
-  model_version: "v0-unset"
+  model_version: "rul-xgb-clf-v1"
   rul_cap: 125
   test_size_engines: 0.2
   random_seed: 42

@@ -37,9 +37,12 @@ class ServiceFactory:
                 artifact_dir = self.config.get("predictive", {}).get(
                     "model_path", "models/predictive"
                 )
-                # Extract directory from model_path
+                # Use artifact_dir directly as the model directory
                 import os
-                artifact_dir = os.path.dirname(artifact_dir) or "models/predictive"
+                if os.path.isfile(artifact_dir):
+                    artifact_dir = os.path.dirname(artifact_dir)
+                elif not os.path.isdir(artifact_dir):
+                    artifact_dir = "models/predictive"
                 self._services["predictor"] = PredictionService(artifact_dir)
             except Exception as exc:
                 import logging

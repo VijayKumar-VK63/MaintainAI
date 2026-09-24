@@ -1,6 +1,8 @@
-"""Phase 6 tests: training format, resource audit, smoke-test artifacts."""
+"""Phase 6 tests: training format, resource audit, HF model availability."""
 import json
 from pathlib import Path
+
+import requests
 
 from src.train_slm import audit_resources, format_text
 
@@ -16,8 +18,12 @@ def test_audit_reports_no_gpu_honestly():
     assert "torch" in res
 
 
-def test_smoke_adapter_artifacts_exist():
-    d = Path("experiments/exp_001-smoke/adapter")
-    assert (d / "adapter_model.safetensors").exists()
-    cfg = json.loads((d / "adapter_config.json").read_text())
-    assert cfg["r"] == 8 and cfg["task_type"] == "CAUSAL_LM"
+def test_finetuned_model_exists_on_hf_hub():
+    """Verify the fine-tuned LoRA adapter exists on Hugging Face Hub."""
+    url = "https://huggingface.co/api/models/Vijay-kumar-63/maintainai-qwen2.5-3b-lora"
+    resp = requests.get(url, timeout=30)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["modelId"] == "Vijay-kumar-63/maintainai-qwen2.5-3b-lora"
+    assert "lora" in data.get("tags", [])
+    assert "peft" in data.get("tags", [])

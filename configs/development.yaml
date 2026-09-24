@@ -8,11 +8,11 @@ slm:
   trust_remote_code: false
 
 predictive:
-  model_version: "v0-unset"
-  model_path: "models/predictive/failure_model.joblib"
-  scaler_path: "models/predictive/scaler.joblib"
+  model_version: "rul-xgb-clf-v1"
+  model_path: "models/predictive"
+  scaler_path: "models/predictive/scaler_fd001.joblib"
   feature_schema: "models/predictive/feature_schema.json"
-  decision_threshold: 0.5
+  decision_threshold: 0.65
   rul_cap: 125
   feature_window: 30
 

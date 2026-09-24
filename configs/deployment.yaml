@@ -1,17 +1,17 @@
 slm:
-  # Deployment: remote inference preferred; local 3B on free CPU is NOT expected to work.
-  # SLMService must fall back to demo mode with an explicit banner (see docs/DEPLOYMENT.md).
+  # Deployment: remote inference via HF Inference Endpoint
+  # Create endpoint at: https://huggingface.co/models/Vijay-kumar-63/maintainai-qwen2.5-3b-lora -> "Deploy" -> "Inference Endpoint"
   model_name: "Qwen/Qwen2.5-3B-Instruct"
   quantization: "4bit"
   adapter_path: null
-  inference_endpoint: null
+  inference_endpoint: ""
   max_new_tokens: 256
   temperature: 0.2
 
 predictive:
-  model_version: "v0-unset"
-  model_path: "models/predictive/failure_model.joblib"
-  decision_threshold: 0.5
+  model_version: "rul-xgb-clf-v1"
+  model_path: "models/predictive"
+  decision_threshold: 0.65
 
 simulation:
   default_machine: "M001"
