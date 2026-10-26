@@ -5,6 +5,19 @@ __version__ = "0.1.0"
 
 from src.config import load_config
 from src.context_builder import build_context, render_prompt
+from src.engine import (
+    MaintainAIEngine,
+    create_engine,
+    PredictiveUnavailableError,
+    TelemetryStaleError,
+    UnknownMachineError,
+)
+from src.prompts import (
+    SYSTEM_PROMPT,
+    build_messages,
+    build_user_message,
+    render_chat,
+)
 from src.data_cmapss import (
     SENSOR_COLS,
     INFORMATIVE_SENSORS,
@@ -26,9 +39,14 @@ from src.predictive import (
 from src.schemas import Telemetry, Prediction, SLMAnalysis, MachineContext
 from src.simulation import MachineSimulator, SimulationService, VALID_SCENARIOS
 from src.slm_dataset import generate_dataset, KNOWN_CONDITIONS
-from src.slm_eval import run_harness, load_test_examples
-from src.slm_service import SLMService, HFBackend, DemoBackend, RemoteBackend
-from src.train_slm import train, audit_resources
+from src.slm_service import (
+    SLMService,
+    HFBackend,
+    TransformersBackend,
+    DemoBackend,
+    OpenAICompatibleBackend,
+    RemoteBackend,
+)
 from src.validation import validate_slm_output, controlled_fallback, extract_json
 from src.knowledge import KnowledgeService
 from src.services import ServiceFactory, create_services, machine_state, chat
@@ -37,6 +55,15 @@ __all__ = [
     "load_config",
     "build_context",
     "render_prompt",
+    "SYSTEM_PROMPT",
+    "build_messages",
+    "build_user_message",
+    "render_chat",
+    "MaintainAIEngine",
+    "create_engine",
+    "UnknownMachineError",
+    "PredictiveUnavailableError",
+    "TelemetryStaleError",
     "SENSOR_COLS",
     "INFORMATIVE_SENSORS",
     "load_fd001",
@@ -64,14 +91,12 @@ __all__ = [
     "VALID_SCENARIOS",
     "generate_dataset",
     "KNOWN_CONDITIONS",
-    "run_harness",
-    "load_test_examples",
     "SLMService",
     "HFBackend",
+    "TransformersBackend",
     "DemoBackend",
+    "OpenAICompatibleBackend",
     "RemoteBackend",
-    "train",
-    "audit_resources",
     "validate_slm_output",
     "controlled_fallback",
     "extract_json",

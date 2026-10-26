@@ -5,8 +5,11 @@ __pycache__/
 notebooks/executed_*.ipynb
 data/processed/
 data/raw/
-models/predictive/*.joblib
+# Predictive artifacts are small (~2 MB) and required by deployments; track them.
 models/slm/
+# LoRA checkpoints belong on the HF Hub, not in git (files exceed 100 MB).
+slm/
+demo/*.mp4
 experiments/*/checkpoints/
 *.parquet
 *.faiss

@@ -21,7 +21,13 @@ def test_all_targets_schema_valid():
     for split in ("train", "val", "test"):
         for e in _load(split):
             SLMAnalysis.model_validate_json(e["target"])
-            assert set(e) == {"system", "user", "target", "meta"}
+            assert {"system", "user", "target", "meta"}.issubset(e)
+            if "messages" in e:
+                assert [m["role"] for m in e["messages"]] == [
+                    "system", "user", "assistant"
+                ]
+                assert e["messages"][1]["content"] == e["user"]
+                assert e["messages"][2]["content"] == e["target"]
             n += 1
     assert n == 880
 

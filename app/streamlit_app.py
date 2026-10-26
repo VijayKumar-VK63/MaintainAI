@@ -15,6 +15,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 import json
+import os
 import time
 
 import plotly.graph_objects as go
@@ -23,6 +24,16 @@ import streamlit as st
 from app.services_local import chat, create_services, machine_state
 
 st.set_page_config(page_title="MaintainAI", layout="wide")
+
+# Streamlit Cloud exposes secrets via st.secrets, not as environment variables.
+# Bridge the SLM/API settings so src.config sees the same values locally/cloud.
+try:
+    for _key in ("SLM_BACKEND", "SLM_INFERENCE_ENDPOINT", "SLM_INFERENCE_PATH",
+                 "SLM_API_KEY", "HF_TOKEN", "SLM_MODEL_NAME", "SLM_ADAPTER_PATH"):
+        if _key in st.secrets and not os.getenv(_key):
+            os.environ[_key] = str(st.secrets[_key])
+except Exception:
+    pass
 st.title("MaintainAI — Machine Monitoring Demo")
 st.caption("Simulated telemetry for research/demo. Decision support only — "
            "qualified personnel make all maintenance decisions.")
@@ -42,6 +53,10 @@ STATUS_COLOR = {"HEALTHY": "green", "WARNING": "orange", "HIGH_RISK": "red", "CR
 with st.sidebar:
     st.header("Machine Simulation")
     machine = st.selectbox("Machine", sorted(svc["sim"].machines))
+    if st.session_state.get("active_machine") != machine:
+        st.session_state.active_machine = machine
+        st.session_state.prob_hist = []
+        st.session_state.chat_hist = []
     col1, col2 = st.columns(2)
     with col1:
         if st.button("Start Monitoring"):

@@ -19,17 +19,11 @@ import joblib
 import numpy as np
 import pandas as pd
 
-from src.context_builder import build_context, render_prompt
+from src.context_builder import build_context
 from src.data_cmapss import SENSOR_COLS, load_fd001
 from src.predictive import MODEL_VERSION, health_state
+from src.prompts import SYSTEM_PROMPT, build_messages, build_user_message
 from src.schemas import Prediction, SLMAnalysis, Telemetry
-
-SYSTEM_PROMPT = (
-    "You are a predictive maintenance assistant. "
-    "Analyze machine condition ONLY from the provided evidence. "
-    "Do not invent sensor measurements, maintenance history, inspections, "
-    "or unsupported failure modes. Respond with structured JSON only."
-)
 
 WATCH = ("s3", "s4", "s9", "s11", "s12")
 KNOWN_CONDITIONS = ["healthy_operation", "hpc_degradation", "unknown_anomaly"]
@@ -180,10 +174,14 @@ def build_examples(
             )
             ctx = build_context(current, previous, pred, KNOWN_CONDITIONS)
             target = derive_target(row, float(prob), float(rul_p), threshold)
+            target_json = json.dumps(target)
             examples.append({
                 "system": SYSTEM_PROMPT,
-                "user": render_prompt(ctx),
-                "target": json.dumps(target),
+                "user": build_user_message(ctx),
+                "target": target_json,
+                "messages": build_messages(ctx) + [
+                    {"role": "assistant", "content": target_json}
+                ],
                 "meta": {
                     "engine": mid, "cycle": int(row["cycle"]),
                     "true_rul": float(row["rul"]) if "rul" in g else None,

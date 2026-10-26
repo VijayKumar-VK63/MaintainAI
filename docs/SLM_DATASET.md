@@ -10,9 +10,11 @@
   - val: LOW 101 / MEDIUM 1 / HIGH 4 / CRITICAL 34
   - test (last cycle per NASA test engine = decision point): LOW 74 / MEDIUM 2 /
     HIGH 4 / CRITICAL 20; healthy 52 / hpc 26 / unknown 22
-- **Schema**: `{system, user, target, meta}`; target validated against
+- **Schema**: `{system, user, target, messages, meta}`; target validated against
   `SLMAnalysis` (risk_level, likely_condition, confidence, evidence[1..10],
-  recommended_action, urgency). Every target schema-validated at generation.
+  recommended_action, urgency). `messages` holds the canonical
+  system/user/assistant chat used by both training and inference. Every target
+  is schema-validated at generation.
 - **Label rules** (`src/slm_dataset.py::derive_target`): evidence tokens from a
   closed set, triggered by measured quantities only (causal baseline deviation
   k=2, predicted RUL ≤30, failure prob vs val-tuned threshold 0.65);
@@ -21,8 +23,8 @@
   probability sharpness + evidence count.
 - **Generation methodology**: stratified sampling across true-RUL life stages
   (early/mid/late) for train/val; decision-point (last cycle) sampling for test.
-  User prompts rendered by `ContextBuilder.render_prompt` — the same code path
-  used at inference, so training format matches deployment format.
+  User messages rendered by `src.prompts.build_messages` — the same function
+  used at inference, so the training format matches deployment exactly.
 - **Validation**: all 880 targets pass `SLMAnalysis`; engine sets disjoint
   (train M-engines ⊂ predictive-train 80; val ⊂ predictive-val 20; test =
   NASA test fleet, namespaced `T`; asserted in tests).

@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MaintainAI - Fine-Tuned SLM Demo</title>
+    <style>
+        * { box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+        body { max-width: 900px; margin: 0 auto; padding: 20px; background: #f5f5f5; color: #333; }
+        .card { background: white; border-radius: 12px; padding: 24px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+        h1 { color: #1a1a2e; margin-bottom: 8px; }
+        .subtitle { color: #666; margin-bottom: 24px; }
+        .badge { display: inline-block; background: #eef2ff; color: #3730a3; padding: 4px 12px; border-radius: 20px; font-size: 13px; font-weight: 600; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 20px; }
+        label { display: block; font-weight: 600; margin-bottom: 6px; font-size: 14px; color: #333; }
+        input, select { width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px; }
+        input:focus, select:focus { outline: none; border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59,130,246,0.15); }
+        .btn { background: #2563eb; color: white; border: none; padding: 12px 24px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 14px; }
+        .btn:hover { background: #1d4ed8; }
+        .btn:disabled { background: #9ca3af; cursor: not-allowed; }
+        .btn-secondary { background: #6b7280; }
+        .output { background: #fafafa; border: 1px solid #e5e5e5; border-radius: 8px; padding: 16px; min-height: 150px; white-space: pre-wrap; font-family: 'Monaco', 'Menlo', monospace; font-size: 13px; line-height: 1.6; }
+        .chat-container { display: flex; flex-direction: column; gap: 12px; }
+        .msg { padding: 12px 16px; border-radius: 12px; max-width: 85%; }
+        .msg-user { background: #2563eb; color: white; align-self: flex-end; border-bottom-right-radius: 4px; }
+        .msg-assistant { background: #f3f4f6; color: #1f2937; align-self: flex-start; border-bottom-left-radius: 4px; }
+        .chat-input-row { display: flex; gap: 8px; margin-top: 16px; }
+        .chat-input-row input { flex: 1; }
+        .status { padding: 8px 12px; border-radius: 6px; font-size: 13px; margin-bottom: 16px; }
+        .status.ok { background: #dcfce7; color: #166534; }
+        .status.err { background: #fee2e2; color: #991b1b; }
+        .status.warn { background: #fef3c7; color: #92400e; }
+        .risk-low { color: #16a34a; font-weight: 700; }
+        .risk-medium { color: #f59e0b; font-weight: 700; }
+        .risk-high { color: #f97316; font-weight: 700; }
+        .risk-critical { color: #dc2626; font-weight: 700; }
+        .risk-unknown { color: #6b7280; font-weight: 700; }
+        .evidence-tag { display: inline-block; background: #dbeafe; color: #1e40af; padding: 2px 10px; border-radius: 999px; font-size: 12px; margin: 2px; font-weight: 600; }
+        @media (max-width: 600px) { .grid { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>🔧 MaintainAI</h1>
+        <p class="subtitle">Fine-tuned Qwen2.5-3B + LoRA for predictive maintenance</p>
+        <span class="badge">Model: Vijay-kumar-63/maintainai-qwen2.5-3b-lora</span>
+        <span class="badge" style="margin-left: 8px; background: #fef3c7; color: #92400e;">Free Tier: Rate Limited</span>
+    </div>
+
+    <div class="card">
+        <h3>📊 Machine Context</h3>
+        <div class="grid">
+            <div>
+                <label>Machine ID</label>
+                <input type="text" id="machineId" value="M001">
+            </div>
+            <div>
+                <label>Cycle</label>
+                <input type="number" id="cycle" value="100" min="1">
+            </div>
+            <div>
+                <label>Health State</label>
+                <select id="healthState">
+                    <option value="HEALTHY">HEALTHY</option>
+                    <option value="WARNING">WARNING</option>
+                    <option value="HIGH_RISK">HIGH_RISK</option>
+                    <option value="CRITICAL">CRITICAL</option>
+                </select>
+            </div>
+            <div>
+                <label>Failure Probability</label>
+                <input type="range" id="failureProb" min="0" max="1" step="0.01" value="0.1">
+                <div style="margin-top: 4px; font-size: 13px; color: #666;"><span id="failureProbVal">10%</span></div>
+            </div>
+            <div>
+                <label>Predicted RUL (cycles)</label>
+                <input type="number" id="rul" value="100" min="0">
+            </div>
+        </div>
+        <h3 style="margin-top: 20px;">🔑 Key Sensors (FD001)</h3>
+        <div class="grid">
+            <div><label>s3 - HPC Outlet Temp</label><input type="number" id="s3" value="1586" step="0.1"></div>
+            <div><label>s4 - LPT Outlet Temp</label><input type="number" id="s4" value="1402" step="0.1"></div>
+            <div><label>s9 - Core Speed</label><input type="number" id="s9" value="9045" step="0.1"></div>
+            <div><label>s11 - HPC Outlet Pressure</label><input type="number" id="s11" value="47.4" step="0.1"></div>
+            <div><label>s12 - LPT Outlet Pressure</label><input type="number" id="s12" value="521" step="0.1"></div>
+        </div>
+        <div style="margin-top: 16px; display: flex; gap: 12px;">
+            <button class="btn" id="analyzeBtn" onclick="analyze()">Analyze Machine</button>
+            <button class="btn btn-secondary" onclick="clearOutput()">Clear</button>
+        </div>
+        <div id="status" class="status" style="display: none;"></div>
+        <div id="output" class="output"></div>
+    </div>
+
+    <div class="card">
+        <h3>💬 Maintenance Assistant Chat</h3>
+        <div id="chatContainer" class="chat-container"></div>
+        <div class="chat-input-row">
+            <input type="text" id="chatInput" placeholder="Ask about the machine condition..." onkeypress="if(event.key==='Enter') sendChat()">
+            <button class="btn" onclick="sendChat()">Send</button>
+        </div>
+    </div>
+
+    <div class="card" style="background: #fafafa; border: 1px solid #e5e5e5;">
+        <h4>ℹ️ About</h4>
+        <ul style="margin: 0; padding-left: 20px; color: #666; line-height: 1.8;">
+            <li>This demo calls the <strong>Hugging Face Inference API</strong> (free tier, rate limited)</li>
+            <li>Model: <code>Vijay-kumar-63/maintainai-qwen2.5-3b-lora</code> (Qwen2.5-3B + LoRA, QLoRA 4-bit)</li>
+            <li>Trained on NASA CMAPSS FD001 with grounded instruction tuning</li>
+            <li>For production: deploy a dedicated <a href="https://huggingface.co/docs/inference-endpoints" target="_blank">HF Inference Endpoint</a> (GPU)</li>
+        </ul>
+    </div>
+
+    <script>
+        const MODEL_ID = "Vijay-kumar-63/maintainai-qwen2.5-3b-lora";
+        const API_URL = `https://api-inference.huggingface.co/models/${MODEL_ID}`;
+        const HF_TOKEN = ""; // Set via Space Settings > Variables if needed
+
+        const SYSTEM_PROMPT = `You are a predictive maintenance assistant.
+Analyze machine condition ONLY from the provided evidence.
+Do not invent sensor measurements, maintenance history, inspections,
+or unsupported failure modes. Respond with structured JSON only.`;
+
+        const KNOWN_CONDITIONS = ["healthy_operation", "hpc_degradation", "unknown_anomaly"];
+        const WATCH_SENSORS = ["s3", "s4", "s9", "s11", "s12"];
+
+        const failureProbEl = document.getElementById('failureProb');
+        const failureProbValEl = document.getElementById('failureProbVal');
+        failureProbEl.addEventListener('input', () => {
+            failureProbValEl.textContent = Math.round(failureProbEl.value * 100) + '%';
+        });
+
+        function buildPrompt(machineId, cycle, sensors, trends, failureProb, anomalyScore, healthState, rul) {
+            const lines = [
+                SYSTEM_PROMPT,
+                `Machine: ${machineId}`,
+                `Cycle: ${cycle}`,
+                `Current sensors: ${JSON.stringify(sensors)}`,
+                `Sensor trends: ${JSON.stringify(trends)}`,
+                `Predictive model: failure_probability=${failureProb.toFixed(3)} anomaly_score=${anomalyScore.toFixed(3)} health_state=${healthState} rul_cycles=${rul}`,
+                `Known possible conditions: ${KNOWN_CONDITIONS.join(', ')}`,
+                "Task: provide risk_level, likely_condition, confidence, evidence, recommended_action, urgency as JSON."
+            ];
+            return lines.join('\n');
+        }
+
+        function extractJson(text) {
+            const match = text.match(/\{[\s\S]*\}/);
+            if (match) {
+                try { return JSON.parse(match[0]); } catch { return null; }
+            }
+            return null;
+        }
+
+        function riskClass(risk) {
+            const classes = { LOW: 'risk-low', MEDIUM: 'risk-medium', HIGH: 'risk-high', CRITICAL: 'risk-critical', UNKNOWN: 'risk-unknown' };
+            return classes[risk] || 'risk-unknown';
+        }
+
+        function formatAnalysis(parsed) {
+            if (!parsed) return '❌ Failed to parse response';
+            const evidenceHtml = (parsed.evidence || []).map(e => `<span class="evidence-tag">${e}</span>`).join(' ');
+            return `
+<div style="display: grid; gap: 12px;">
+    <div><strong>Risk Level:</strong> <span class="${riskClass(parsed.risk_level)}">${parsed.risk_level}</span></div>
+    <div><strong>Likely Condition:</strong> ${parsed.likely_condition || 'unknown'}</div>
+    <div><strong>Confidence:</strong> ${(parsed.confidence || 0) * 100}%</div>
+    <div><strong>Evidence:</strong> ${evidenceHtml || '<span style="color:#999">none</span>'}</div>
+    <div><strong>Recommended Action:</strong> ${parsed.recommended_action || 'continue_monitoring'}</div>
+    <div><strong>Urgency:</strong> ${parsed.urgency || 'UNKNOWN'}</div>
+</div>`;
+        }
+
+        function showStatus(msg, type = 'warn') {
+            const el = document.getElementById('status');
+            el.textContent = msg;
+            el.className = `status ${type}`;
+            el.style.display = 'block';
+        }
+
+        async function queryModel(prompt, maxTokens = 256, temp = 0.2) {
+            const payload = {
+                inputs: prompt,
+                parameters: { max_new_tokens: maxTokens, temperature: temp, return_full_text: false }
+            };
+            const headers = { 'Content-Type': 'application/json' };
+            if (HF_TOKEN) headers['Authorization'] = `Bearer ${HF_TOKEN}`;
+
+            const resp = await fetch(API_URL, {
+                method: 'POST',
+                headers,
+                body: JSON.stringify(payload)
+            });
+            if (!resp.ok) {
+                const err = await resp.text();
+                throw new Error(`API ${resp.status}: ${err}`);
+            }
+            const data = await resp.json();
+            if (Array.isArray(data) && data[0]?.generated_text) return data[0].generated_text;
+            return JSON.stringify(data);
+        }
+
+        async function analyze() {
+            const btn = document.getElementById('analyzeBtn');
+            const output = document.getElementById('output');
+            btn.disabled = true;
+            btn.textContent = 'Analyzing...';
+            output.textContent = 'Calling model...';
+            showStatus('Requesting analysis from HF Inference API...', 'warn');
+
+            try {
+                const machineId = document.getElementById('machineId').value;
+                const cycle = parseInt(document.getElementById('cycle').value);
+                const healthState = document.getElementById('healthState').value;
+                const failureProb = parseFloat(document.getElementById('failureProb').value);
+                const rul = parseInt(document.getElementById('rul').value);
+
+                const sensors = {
+                    s3: parseFloat(document.getElementById('s3').value),
+                    s4: parseFloat(document.getElementById('s4').value),
+                    s9: parseFloat(document.getElementById('s9').value),
+                    s11: parseFloat(document.getElementById('s11').value),
+                    s12: parseFloat(document.getElementById('s12').value)
+                };
+
+                const trends = {};
+                WATCH_SENSORS.forEach(s => { trends[`${s}_rel_change`] = 0; });
+
+                const prompt = buildPrompt(machineId, cycle, sensors, trends, failureProb, 1.0, healthState, rul);
+                const response = await queryModel(prompt);
+                const parsed = extractJson(response);
+
+                output.innerHTML = formatAnalysis(parsed);
+                if (!parsed) {
+                    output.textContent += '\n\n---\nRaw response:\n' + response;
+                    showStatus('Response received but could not parse JSON', 'warn');
+                } else {
+                    showStatus('Analysis complete', 'ok');
+                }
+            } catch (e) {
+                output.textContent = 'Error: ' + e.message;
+                showStatus('Error: ' + e.message, 'err');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Analyze';
+            }
+        }
+
+        function clearOutput() {
+            document.getElementById('output').textContent = '';
+            document.getElementById('status').style.display = 'none';
+        }
+
+        async function sendChat() {
+            const input = document.getElementById('chatInput');
+            const msg = input.value.trim();
+            if (!msg) return;
+
+            const container = document.getElementById('chatContainer');
+            container.innerHTML += `<div class="msg msg-user">${escapeHtml(msg)}</div>`;
+            input.value = '';
+            container.scrollTop = container.scrollHeight;
+
+            const thinking = document.createElement('div');
+            thinking.className = 'msg msg-assistant';
+            thinking.textContent = 'Thinking...';
+            container.appendChild(thinking);
+            container.scrollTop = container.scrollHeight;
+
+            try {
+                const machineId = document.getElementById('machineId').value;
+                const cycle = parseInt(document.getElementById('cycle').value);
+                const healthState = document.getElementById('healthState').value;
+                const failureProb = parseFloat(document.getElementById('failureProb').value);
+                const rul = parseInt(document.getElementById('rul').value);
+
+                const sensors = {
+                    s3: parseFloat(document.getElementById('s3').value),
+                    s4: parseFloat(document.getElementById('s4').value),
+                    s9: parseFloat(document.getElementById('s9').value),
+                    s11: parseFloat(document.getElementById('s11').value),
+                    s12: parseFloat(document.getElementById('s12').value)
+                };
+                const trends = {};
+                WATCH_SENSORS.forEach(s => { trends[`${s}_rel_change`] = 0; });
+
+                const context = buildPrompt(machineId, cycle, sensors, trends, failureProb, 1.0, healthState, rul);
+                const prompt = `${context}\n\nUser question: ${msg}\nAnswer:`;
+                const response = await queryModel(prompt, 256, 0.3);
+
+                thinking.textContent = response;
+            } catch (e) {
+                thinking.textContent = 'Error: ' + e.message;
+                thinking.style.color = '#dc2626';
+            }
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+    </script>
+</body>
+</html>

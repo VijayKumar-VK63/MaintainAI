@@ -1,10 +1,15 @@
 slm:
-  # Deployment: remote inference via HF Inference Endpoint
-  # Create endpoint at: https://huggingface.co/models/Vijay-kumar-63/maintainai-qwen2.5-3b-lora -> "Deploy" -> "Inference Endpoint"
+  # Deployment: OpenAI-compatible inference (HF TGI endpoint, vLLM, llama.cpp).
+  # Set SLM_INFERENCE_ENDPOINT and SLM_API_KEY (or HF_TOKEN) in the environment.
   model_name: "Qwen/Qwen2.5-3B-Instruct"
+  backend: "openai"
   quantization: "4bit"
   adapter_path: null
   inference_endpoint: ""
+  # llama.cpp/vLLM/TGI: /v1/chat/completions; TGI /generate is also supported.
+  inference_path: "/v1/chat/completions"
+  api_key: ""
+  include_knowledge: false
   max_new_tokens: 256
   temperature: 0.2
 

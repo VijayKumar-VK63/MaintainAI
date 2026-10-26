@@ -1,18 +1,26 @@
-# Training — QLoRA (Colab GPU; UNRUN — record real numbers here when run)
+# Training — QLoRA on Qwen2.5-3B-Instruct
 
 - **Method**: 4-bit NF4 base (`Qwen/Qwen2.5-3B-Instruct`) + LoRA adapters
   (r=16, alpha=32, dropout 0.05, targets q/k/v/o + gate/up/down), PEFT + TRL
-  SFTTrainer. Full 3B fine-tuning explicitly NOT attempted (resource audit).
-- **Config**: `configs/training.yaml` (lr 2e-4, epochs 3, batch 1, grad-accum 4,
-  max_seq 1024, fp16 on T4, seed 42). Smoke test (20 examples, 10 steps) first.
-- **Data**: `data/slm/train.jsonl` (640) / val (140); test (100) NEVER trained on.
-- **Checkpoints**: Drive `MaintainAI/slm/checkpoints/exp_001/`; select on VAL loss.
-- **Persistence**: final adapter → Drive + Hugging Face Hub (LoRA only, ~50–100MB).
-- **Status**: full Qwen2.5-3B run not yet executed (no GPU locally; staged in
-  `experiments/exp_001/`, launch: `python -m src.train_slm --config configs/training.yaml`).
-- **CPU smoke test (EXECUTED 2026-09-20, local)**: SmolLM2-135M + LoRA (r=8) for
-  8 steps on 20 real Phase-4 examples — train loss 2.047, adapter saved
-  (1.9 MB) to `experiments/exp_001-smoke/adapter/`, reloaded, generation
-  attempted. Sample output NOT valid JSON — expected after 8 steps on a 135M
-  model; proves the format/train/save/reload loop, teaches nothing. The real
-  experiment (3B + QLoRA + 640 examples + Colab T4) is a different regime.
+  SFTTrainer. Full 3B fine-tuning is not attempted (resource audit).
+- **Config**: `configs/training.yaml` (lr 2e-4, 3 epochs, batch 1, grad-accum 4,
+  max_seq 1024, fp16 on T4, seed 42).
+- **Format**: training examples store canonical chat `messages`
+  (`system`, `user`, `assistant`). `src/train_slm.py` applies the tokenizer
+  chat template — the same messages used by inference/evaluation.
+- **Data**: `data/slm/train.jsonl` (640) / `val.jsonl` (140); `test.jsonl` (100)
+  is NEVER trained on. Token audit with the Qwen tokenizer: max 639 tokens,
+  p50 608 — below `max_seq_length=1024`, so no training examples are truncated.
+- **Checkpoints**: best model selected on validation loss; adapter saved to
+  `output_dir/final`; `train_metrics.json` records train/eval loss, step,
+  runtime, and counts.
+- **Launch**:
+  ```bash
+  python -m src.train_slm --config configs/training.yaml
+  # smoke: python -m src.train_slm --config configs/training.yaml --smoke
+  ```
+- **Existing artifact**: `slm/checkpoints/final` is from a 1-epoch / 160-step run
+  (train loss ~0.464, eval loss ~0.4647). Rerun notebook 07 for the 3-epoch
+  adapter before publishing evaluation numbers.
+- **Publish**: upload the LoRA adapter (only) to the HF Hub. Do not commit
+  checkpoints to git; `slm/` is gitignored.

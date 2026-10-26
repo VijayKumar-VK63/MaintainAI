@@ -1,1 +1,11 @@
-{"status": "pending-gpu", "train_loss": null, "val_loss": null, "adapter": null}
+{
+ "status": "measured-1-epoch",
+ "epochs": 1,
+ "global_step": 160,
+ "max_steps": 160,
+ "train_loss_last": 0.46416921615600587,
+ "eval_loss_best": 0.4646962285041809,
+ "best_model_checkpoint": "/content/drive/MyDrive/MaintainAI/slm/checkpoints/checkpoint-160",
+ "adapter": "slm/checkpoints/final",
+ "notes": "Historical 1-epoch run. configs/training.yaml now specifies 3 epochs; rerun notebook 07 for the final adapter."
+}

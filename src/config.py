@@ -19,6 +19,12 @@ def load_config(path: str | Path) -> dict[str, Any]:
         cfg["slm"]["adapter_path"] = os.environ["SLM_ADAPTER_PATH"]
     if os.getenv("SLM_INFERENCE_ENDPOINT"):
         cfg["slm"]["inference_endpoint"] = os.environ["SLM_INFERENCE_ENDPOINT"]
+    if os.getenv("SLM_BACKEND"):
+        cfg["slm"]["backend"] = os.environ["SLM_BACKEND"]
+    if os.getenv("SLM_INFERENCE_PATH"):
+        cfg["slm"]["inference_path"] = os.environ["SLM_INFERENCE_PATH"]
+    if os.getenv("SLM_API_KEY"):
+        cfg["slm"]["api_key"] = os.environ["SLM_API_KEY"]
     if os.getenv("API_BASE_URL"):
         cfg.setdefault("api", {})["base_url"] = os.environ["API_BASE_URL"]
     return cfg

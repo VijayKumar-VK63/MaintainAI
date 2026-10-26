@@ -1,7 +1,13 @@
 slm:
   model_name: "Qwen/Qwen2.5-3B-Instruct"
+  # demo | transformers | openai (openai = llama.cpp/vLLM/TGI/HF endpoint)
+  backend: "demo"
   quantization: "4bit"
   adapter_path: null
+  inference_endpoint: ""
+  inference_path: "/v1/chat/completions"
+  api_key: ""
+  include_knowledge: false
   max_new_tokens: 512
   temperature: 0.2
   max_seq_length: 1024

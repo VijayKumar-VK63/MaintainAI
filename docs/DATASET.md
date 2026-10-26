@@ -29,7 +29,7 @@
   disjoint (asserted in tests). IMPORTANT: unit IDs 1–100 repeat across the train
   and test files — they are distinct engine fleets sharing an ID namespace, so
   cross-file ID comparison is meaningless; test engines are namespaced as
-  `test_<unit>` and never used for fitting. All rolling features use `.shift(1)`
+  `T{unit:03d}` and never used for fitting. All rolling features use `.shift(1)`
   (causal, verified by unit test); first-cycle history backfilled from current
   value so no NaNs reach the scaler.
 - **Measured stats**: train 20,631 rows / 100 engines (max cycle 362, mean RUL

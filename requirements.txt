@@ -13,6 +13,7 @@ streamlit>=1.28
 plotly>=5.17
 pytest>=7.4
 python-dotenv>=1.0
+requests>=2.31
 peft>=0.12
 # Colab/GPU-only (installed in notebook 07, NOT locally):
 # transformers (already present), trl, accelerate, bitsandbytes, datasets

@@ -4,6 +4,7 @@ UI must never build prompts directly; it calls ContextBuilder + SLMService.
 """
 from __future__ import annotations
 
+from src.prompts import render_prompt
 from src.schemas import MachineContext, Prediction, Telemetry
 
 
@@ -35,24 +36,4 @@ def build_context(
     )
 
 
-def render_prompt(context: MachineContext) -> str:
-    """Single place where structured context becomes SLM input text."""
-    lines = [
-        "You are a predictive maintenance assistant.",
-        "Analyze machine condition ONLY from the provided evidence.",
-        "Do not invent sensor measurements, maintenance history, inspections,",
-        "or unsupported failure modes. Respond with structured JSON only.",
-        f"Machine: {context.machine_id}",
-        f"Cycle: {context.current.cycle}",
-        f"Current sensors: {context.current.sensors}",
-        f"Sensor trends: {context.trends}",
-        "Predictive model: "
-        f"failure_probability={context.prediction.failure_probability:.3f} "
-        f"anomaly_score={context.prediction.anomaly_score:.3f} "
-        f"health_state={context.prediction.health_state} "
-        f"rul_cycles={context.prediction.rul_cycles}",
-        f"Known possible conditions: {context.known_conditions}",
-        "Task: provide risk_level, likely_condition, confidence, evidence,",
-        "recommended_action, urgency as JSON.",
-    ]
-    return "\n".join(lines)
+__all__ = ["build_context", "render_prompt"]

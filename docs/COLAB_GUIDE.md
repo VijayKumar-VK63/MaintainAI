@@ -35,10 +35,10 @@ drive.mount('/content/drive')
 ├── datasets/                # Large datasets (optional, CMAPSSData can stay in repo)
 ├── models/
 │   └── predictive/          # Predictive model artifacts (from notebook 04)
-├── checkpoints/
-│   └── slm/                 # QLoRA checkpoints
+├── slm/
+│   └── checkpoints/         # QLoRA checkpoints + final adapter
 ├── experiments/
-│   └── exp_001/             # Experiment tracking
+│   └── exp_001/             # Experiment notes/metrics
 ├── logs/
 ├── exports/
 └── reports/                 # Evaluation metrics (metrics_base.json, metrics_finetuned.json)
@@ -86,13 +86,12 @@ slm:
   max_seq_length: 1024
   warmup_steps: 20
   seed: 42
-  output_dir: "/content/drive/MyDrive/MaintainAI/slm/checkpoints/exp_001"
+  output_dir: "/content/drive/MyDrive/MaintainAI/slm/checkpoints"
 ```
 
 ### Smoke Test First
 Set `SMOKE = True` in notebook 07:
-- 20 training examples
-- 10 steps
+- 20 training examples, max 10 optimizer steps
 - Verifies: data loading, model loading, forward/backward, checkpoint save/load
 - Takes ~2 minutes on T4
 
@@ -105,7 +104,7 @@ Set `SMOKE = False`:
 
 ### Memory Management
 - 4-bit quantization: ~2.5 GB VRAM for base model
-- LoRA adapters: ~1.9 MB (r=16)
+- LoRA adapter on disk: ~115 MB (r=16, 7 target modules)
 - Gradient accumulation (4 steps) simulates batch size 4
 - fp16 compute on T4
 
@@ -116,7 +115,7 @@ Set `SMOKE = False`:
 ```bash
 # From Colab terminal or notebook
 !cp -r /content/drive/MyDrive/MaintainAI/reports/*.json /content/drive/MyDrive/MaintainAI/code/reports/
-!cp -r /content/drive/MyDrive/MaintainAI/slm/checkpoints/exp_001/final /content/drive/MyDrive/MaintainAI/code/models/slm/adapter_latest
+!cp -r /content/drive/MyDrive/MaintainAI/slm/checkpoints/final /content/drive/MyDrive/MaintainAI/code/models/slm/adapter_latest
 
 # Or download via Colab file browser
 ```
@@ -149,17 +148,19 @@ models/
    from huggingface_hub import HfApi
    api = HfApi()
    api.upload_folder(
-       folder_path='/content/drive/MyDrive/MaintainAI/slm/checkpoints/exp_001/final',
+       folder_path='/content/drive/MyDrive/MaintainAI/slm/checkpoints/final',
        repo_id='your-username/maintainai-qwen2.5-3b-lora',
        repo_type='model'
    )
    ```
 2. Create Inference Endpoint on HF Hub (GPU: T4 or A10G)
 3. Get endpoint URL: `https://api-inference.huggingface.co/models/your-username/maintainai-qwen2.5-3b-lora`
-4. Update `configs/deployment.yaml`:
-   ```yaml
-   slm:
-     inference_endpoint: "https://api-inference.huggingface.co/models/your-username/maintainai-qwen2.5-3b-lora"
+4. Set the endpoint in the environment (preferred) or `configs/deployment.yaml`:
+   ```bash
+   export SLM_BACKEND=openai
+   export SLM_INFERENCE_ENDPOINT="https://your-endpoint.endpoints.huggingface.cloud"
+   export SLM_INFERENCE_PATH="/v1/chat/completions"
+   export SLM_API_KEY="hf_xxxxxxxxxxxx"
    ```
 
 ### Option B: RunPod / Lambda Labs (vLLM)
@@ -175,30 +176,36 @@ models/
      --enable-lora \
      --lora-modules maintainai=/adapter
    ```
-3. Update `configs/deployment.yaml`:
-   ```yaml
-   slm:
-     inference_endpoint: "http://YOUR_RUNPOD_IP:8000/v1/completions"
+3. Point MaintainAI at the vLLM OpenAI server:
+   ```bash
+   export SLM_BACKEND=openai
+   export SLM_INFERENCE_ENDPOINT="http://YOUR_RUNPOD_IP:8000"
+   export SLM_INFERENCE_PATH="/v1/chat/completions"
    ```
 
 ### Option C: Colab as Inference Server (Temporary)
 ```python
 # In a persistent Colab notebook
-from src.slm_service import SLMService, HFBackend
 from fastapi import FastAPI
+from pydantic import BaseModel
+from src.slm_service import SLMService, HFBackend
 import uvicorn
 
 app = FastAPI()
 svc = SLMService(config={'slm': {'model_name': 'Qwen/Qwen2.5-3B-Instruct'}},
                  backend=HFBackend('Qwen/Qwen2.5-3B-Instruct',
                                    quantization='4bit',
-                                   adapter_path='/content/drive/MyDrive/MaintainAI/slm/checkpoints/exp_001/final'))
+                                   adapter_path='/content/drive/MyDrive/MaintainAI/slm/checkpoints/final'))
 
-@app.post("/generate")
-async def generate(request: dict):
-    prompt = request["prompt"]
-    raw = svc.backend.generate(prompt)
-    return {"generated_text": raw}
+class ChatRequest(BaseModel):
+    messages: list[dict]
+    max_tokens: int = 512
+    temperature: float = 0.2
+
+@app.post("/v1/chat/completions")
+def chat(req: ChatRequest):
+    text = svc.backend.generate(req.messages)
+    return {"choices": [{"message": {"role": "assistant", "content": text}}]}
 
 # Run with ngrok for public URL
 !pip install pyngrok
@@ -208,6 +215,9 @@ print(f"Public URL: {public_url}")
 
 uvicorn.run(app, host="0.0.0.0", port=8000)
 ```
+
+Then set `SLM_BACKEND=openai`, `SLM_INFERENCE_ENDPOINT=<ngrok URL>`,
+and `SLM_INFERENCE_PATH=/v1/chat/completions`.
 
 ---
 

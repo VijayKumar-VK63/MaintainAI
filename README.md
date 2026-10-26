@@ -95,14 +95,17 @@ Traditional ML (XGBoost) is great at **predicting numbers** (RUL, failure probab
 ### ✅ Phase 6: QLoRA Fine-Tuning (Colab GPU)
 - **Base**: Qwen2.5-3B-Instruct (4-bit NF4 quantization)
 - **Method**: QLoRA — LoRA r=16, α=32, dropout=0.05, targets all attention + MLP layers
-- **Training**: 3 epochs, batch=1, grad_accum=4, lr=2e-4, fp16 on T4
+- **Training**: 3 epochs configured (`configs/training.yaml`), batch=1, grad_accum=4, lr=2e-4, fp16 on T4
 - **Checkpoints**: Saved to Google Drive, best model selected on validation loss
 - **Adapter pushed to HF Hub**: `Vijay-kumar-63/maintainai-qwen2.5-3b-lora`
+- **Existing local adapter**: `slm/checkpoints/final` (1-epoch run, 160 steps); rerun notebook 07 for the 3-epoch adapter
 
 ### ✅ Phase 7: Evaluation (Base vs Fine-Tuned)
 - **Same 100 held-out scenarios** for both models
 - **Metrics**: Risk accuracy, Condition accuracy, Evidence F1, Recommendation accuracy, Validity rate, Uncertainty skill, Latency
-- **Comparison script**: `scripts/compare_slm.py` generates `reports/evaluation_report.md`
+- **Single evaluation path**: `src.slm_eval.run_service_eval` calls the same `SLMService.analyze` used by the API/dashboard
+- **Commands**: `python -m src.slm_eval --backend demo|hf|openai ...` then `python scripts/compare_slm.py`
+- **Status**: demo-fallback measured; base/fine-tuned rows are pending a valid GPU rerun (previous notebook runs failed before model output due to a harness import bug)
 
 ### ✅ Phase 8: Simulator & FastAPI
 - **Physics-grounded simulator** — FD001 sensor baselines + degradation drift patterns
@@ -125,9 +128,9 @@ Traditional ML (XGBoost) is great at **predicting numbers** (RUL, failure probab
 
 ### ✅ Phase 11: Deployment Ready
 - **Local demo** — CPU-only, SLM falls back to demo mode with banner
-- **Production** — Streamlit Cloud + HF Inference Endpoint (GPU)
-- **Docker** — `deployment/` with vLLM server, API, Streamlit containers
-- **Config-driven** — Swap models/endpoints via `configs/deployment.yaml`
+- **Local fine-tuned inference** — llama.cpp / vLLM / TGI via the OpenAI-compatible backend
+- **Production** — Streamlit Cloud (dashboard) + HF Inference Endpoint or llama.cpp (SLM)
+- **Config-driven** — `slm.backend` = `demo` | `transformers` | `openai`; endpoints and keys come from env/secrets
 
 ---
 
@@ -141,9 +144,8 @@ Traditional ML (XGBoost) is great at **predicting numbers** (RUL, failure probab
 | **API** | FastAPI, Pydantic, Uvicorn |
 | **UI** | Streamlit, Plotly |
 | **Config** | YAML, python-dotenv |
-| **Testing** | pytest (39 tests passing) |
-| **Containerization** | Docker, Docker Compose |
-| **Inference** | vLLM (LoRA support), HF Inference Endpoints |
+| **Testing** | pytest (46 passing, 1 optional network test skipped) |
+| **Inference** | Transformers+PEFT, llama.cpp, vLLM, TGI, HF Inference Endpoints |
 
 ---
 
@@ -165,7 +167,7 @@ pip install -r requirements.txt
 
 # Verify installation
 pytest -q
-# Should show: 39 passed
+# Should show: 45 passed, 1 skipped
 ```
 
 ### Run the Demo (2 Terminals)
@@ -203,22 +205,26 @@ Deploy the dashboard directly to Streamlit Community Cloud — no Docker, no GPU
 4. Click "Deploy"
 
 ### How It Works on Streamlit Cloud
-- **Runs entirely in-browser** — no external API server needed
-- **Predictive model (XGBoost)** — Runs locally on CPU (models committed to repo)
-- **SLM (Qwen2.5-3B+LoRA)** — Uses **demo fallback** (rule-based mirror) on CPU
-  - Fine-tuned adapter at `Vijay-kumar-63/maintainai-qwen2.5-3b-lora` on HF Hub
-  - For production SLM: create HF Inference Endpoint (GPU) and add `SLM_INFERENCE_ENDPOINT` to Streamlit secrets
+- **Predictive model (XGBoost)** — Runs locally on CPU with no external server.
+  Commit the small `models/predictive/*.joblib` artifacts (no longer gitignored).
+- **SLM (Qwen2.5-3B+LoRA)** — Uses **demo fallback** unless an endpoint is configured
+  - Publish your LoRA adapter to the HF Hub and serve it with llama.cpp/vLLM/TGI
+    or an HF Inference Endpoint, then set the secrets below
 - **Simulator** — Generates realistic FD001 telemetry in real-time
 
-### Streamlit Secrets (Optional)
-For production SLM with HF Inference Endpoint:
+### Streamlit Secrets
+`app/streamlit_app.py` bridges `st.secrets` into environment variables before
+config loading, so the same config works locally and on Streamlit Cloud.
 ```toml
-# .streamlit/secrets.toml (add in Streamlit Cloud dashboard)
-SLM_INFERENCE_ENDPOINT = "https://your-endpoint.hf.space"
+# .streamlit/secrets.toml (Streamlit Cloud dashboard)
+SLM_BACKEND = "openai"
+SLM_INFERENCE_ENDPOINT = "https://your-endpoint.example.com"
+SLM_INFERENCE_PATH = "/v1/chat/completions"
+SLM_API_KEY = "hf_xxxxxxxxxxxx"
 HF_TOKEN = "hf_xxxxxxxxxxxx"
 ```
 
-> **Note**: Without HF Inference Endpoint, the app runs in **demo mode** — numerical predictions (RUL, failure probability) are fully functional; AI analysis uses a rule-based fallback that mirrors the predictive model's outputs.
+> **Note**: Without an endpoint, the app runs in **demo mode** — numerical predictions (RUL, failure probability) are fully functional; AI analysis uses a rule-based fallback that mirrors the predictive model's outputs. With `SLM_BACKEND=transformers`, the app loads the adapter locally (GPU/Colab only).
 
 ---
 
@@ -246,7 +252,7 @@ HF_TOKEN = "hf_xxxxxxxxxxxx"
 ```
 MaintainAI/
 ├── app/                    # Streamlit dashboard
-│   ├── streamlit_app.py    # Main UI (4 tabs: Monitor, AI Analysis, Evaluation, About)
+│   ├── streamlit_app.py    # Main UI (Monitor + AI analysis + Evaluation)
 │   ├── services_local.py   # Local service factory for Streamlit
 │   └── __init__.py
 ├── api/                    # FastAPI server
@@ -259,14 +265,16 @@ MaintainAI/
 │   ├── features.py         # Causal feature engineering (shift(1))
 │   ├── predictive.py       # XGBoost RUL + Risk models + PredictionService
 │   ├── simulation.py       # Seeded turbofan simulator (FD001 grounded)
-│   ├── context_builder.py  # MachineContext → prompt renderer
+│   ├── prompts.py          # Canonical system/user messages (train == serve)
+│   ├── context_builder.py  # MachineContext → evidence message
+│   ├── engine.py           # Single telemetry→prediction→analysis pipeline
 │   ├── slm_dataset.py      # Grounded instruction dataset generator
-│   ├── slm_eval.py         # Held-out evaluation harness
-│   ├── slm_service.py      # SLMService + backends (HF, Remote, Demo)
+│   ├── slm_eval.py         # Held-out evaluation (production path)
+│   ├── slm_service.py      # SLMService + Demo/Transformers/OpenAI backends
 │   ├── train_slm.py        # QLoRA training script (Colab)
 │   ├── validation.py       # SLM output validation + fallback
 │   ├── knowledge.py        # YAML knowledge loader (failure modes, actions)
-│   ├── services.py         # ServiceFactory for DI
+│   ├── services.py         # Compatibility ServiceFactory over the engine
 │   └── logging_utils.py    # Structured JSON logging (secrets redacted)
 ├── notebooks/              # Colab notebooks (01–08)
 │   ├── 01_environment_check.ipynb
@@ -281,9 +289,8 @@ MaintainAI/
 ├── data/                   # Processed data + SLM datasets
 ├── models/                 # Saved models (predictive + SLM adapter)
 ├── knowledge/              # YAML knowledge base
-├── deployment/             # Docker files for production
-├── scripts/                # Utility scripts (compare_slm, smoke tests)
-├── tests/                  # 39 pytest tests (unit + integration)
+├── scripts/                # compare_slm.py and utilities
+├── tests/                  # 45 pytest tests (unit + integration)
 ├── docs/                   # Documentation
 └── reports/                # Evaluation metrics + comparison tables
 ```
@@ -295,19 +302,30 @@ MaintainAI/
 ### Environment Variables (`.env`)
 ```bash
 # Copy .env.example to .env and fill in
-HF_TOKEN=hf_xxxxxxxxxxxxxxxxxxxx          # For HF Hub upload + Inference Endpoint
-API_BASE_URL=http://127.0.0.1:8000
+SLM_BACKEND=demo                          # demo | transformers | openai
 SLM_MODEL_NAME=Qwen/Qwen2.5-3B-Instruct
-SLM_ADAPTER_PATH=                        # Empty for local demo, path for local adapter
+SLM_ADAPTER_PATH=                         # Used when SLM_BACKEND=transformers
+SLM_INFERENCE_ENDPOINT=                   # Used when SLM_BACKEND=openai
+SLM_INFERENCE_PATH=/v1/chat/completions   # llama.cpp/vLLM/TGI (use /generate for TGI)
+SLM_API_KEY=                              # Bearer token (falls back to HF_TOKEN)
+HF_TOKEN=hf_xxxxxxxxxxxxxxxxxxxx
+API_BASE_URL=http://127.0.0.1:8000
 MODEL_DIR=models
 ```
+
+### SLM Backend Modes
+| Mode | When to use | What loads |
+|------|-------------|------------|
+| `demo` | Default local/CPU/Streamlit Cloud | Rule-based mirror, clearly bannered |
+| `transformers` | Colab/GPU/local with adapter | 4-bit Qwen + PEFT adapter |
+| `openai` | llama.cpp, vLLM, TGI, HF endpoint | HTTP chat-completions backend |
 
 ### Config Files
 | File | Purpose |
 |------|---------|
 | `configs/development.yaml` | Local dev (demo backend) |
-| `configs/training.yaml` | Colab QLoRA training |
-| `configs/deployment.yaml` | Production (HF Inference Endpoint) |
+| `configs/training.yaml` | Colab QLoRA training (3 epochs) |
+| `configs/deployment.yaml` | Production (OpenAI-compatible endpoint) |
 
 ---
 
@@ -324,6 +342,25 @@ pytest tests/test_simulation_api.py -v
 
 # Coverage
 pytest --cov=src --cov-report=html
+```
+
+### SLM Evaluation
+```bash
+# Demo backend (no GPU) — measured baseline of the rule mirror
+python -m src.slm_eval --backend demo --out reports/metrics_demo.json
+
+# Base model (Colab/GPU)
+python -m src.slm_eval --backend hf --out reports/metrics_base.json
+
+# Fine-tuned adapter (Colab/GPU, or a Hub repo id)
+python -m src.slm_eval --backend hf --adapter slm/checkpoints/final \
+  --out reports/metrics_finetuned.json
+
+# Remote llama.cpp/vLLM/TGI endpoint
+python -m src.slm_eval --backend openai --endpoint http://localhost:8001 \
+  --out reports/metrics_finetuned.json
+
+python scripts/compare_slm.py
 ```
 
 ---
@@ -348,38 +385,43 @@ pytest --cov=src --cov-report=html
 | Qwen2.5-3B Base | — | — | — | — | ⏳ Pending |
 | Qwen2.5-3B + LoRA | — | — | — | — | ⏳ Pending |
 
-> Run notebooks 06 & 08 in Colab to fill in base/fine-tuned rows.
+> `pending` means unmeasured, never zero-filled. Notebooks 06/08 now call the
+> same `run_service_eval` path; rerun them with the fixed harness to fill the rows.
 
 ---
 
-## 🐳 Production Deployment (Docker)
+## 🚀 Running the Fine-Tuned Model
 
+### Option A — llama.cpp (CPU, local)
+Convert the base model and adapter to GGUF, then start an OpenAI-compatible server.
+See `docs/GGUF_SETUP.md` for the full conversion commands.
 ```bash
-# Build and run full stack
-cd deployment
-docker-compose up --build
+# After conversion (base + adapter .gguf files):
+llama-server -m maintainai-qwen2.5-3b.q4_k_m.gguf \
+  --lora adapter.gguf -c 2048 --port 8001 --host 0.0.0.0 --no-webui
 
-# Services:
-# - vLLM server (port 8000) — GPU required
-# - API (port 8001) — CPU
-# - Streamlit (port 8501) — CPU
+# Point MaintainAI at it:
+export SLM_BACKEND=openai
+export SLM_INFERENCE_ENDPOINT=http://localhost:8001
+export SLM_INFERENCE_PATH=/v1/chat/completions
 ```
 
-### Free-Tier Deployment Architecture
+### Option B — Transformers + PEFT (GPU/Colab)
+```bash
+export SLM_BACKEND=transformers
+export SLM_ADAPTER_PATH=/path/to/slm/checkpoints/final
 ```
-┌─────────────────┐     ┌──────────────────┐
-│  Streamlit      │     │  HF Inference    │
-│  Community Cloud│────▶│  Endpoint (GPU)  │
-│  (CPU, free)    │     │  Qwen2.5-3B+LoRA │
-└─────────────────┘     └──────────────────┘
-        │
-        ▼
-┌─────────────────┐
-│  FastAPI        │
-│  (Railway/Render│
-│  free tier)     │
-└─────────────────┘
+
+### Option C — HF Inference Endpoint / vLLM / TGI
+```bash
+export SLM_BACKEND=openai
+export SLM_INFERENCE_ENDPOINT=https://your-endpoint.example.com
+export SLM_API_KEY=hf_xxxxxxxxxxxx
+export SLM_INFERENCE_PATH=/v1/chat/completions
 ```
+
+The dashboard/API banner reports which backend is active (`slm_backend`).
+No endpoint configured -> demo fallback with a visible warning.
 
 ---
 
@@ -437,6 +479,7 @@ docker-compose up --build
 | `docs/DEPLOYMENT.md` | Free-tier deployment architecture |
 | `docs/ARCHITECTURE.md` | Mermaid architecture diagram |
 | `docs/COLAB_GUIDE.md` | Step-by-step Colab execution guide |
+| `docs/GGUF_SETUP.md` | llama.cpp conversion + CPU inference |
 
 ---
 

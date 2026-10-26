@@ -10,10 +10,11 @@ Metrics over data/slm/test.jsonl (100 decision-point scenarios):
     confidence <= 0.5 (admits uncertainty); on the rest, fraction > 0.5
   - latency_mean_ms
 
-Usage (local, mock/demo backend):
+Usage (local, demo backend):
     python -m src.slm_eval --backend demo --out reports/metrics_demo.json
-Usage (Colab, real model — notebook 06/08):
-    backend = HFBackend(...); run_harness(examples, service.analyze, ...)
+Usage (Colab/GPU, real model):
+    python -m src.slm_eval --backend hf --adapter ... --out reports/metrics_finetuned.json
+The harness calls service.analyze(context) — the same path used in production.
 """
 from __future__ import annotations
 
@@ -37,6 +38,8 @@ def _evidence_f1(ref: list[str], hyp: list[str]) -> float:
 
 def run_harness(examples: list[dict], analyze_fn: Callable[[dict], dict]) -> dict:
     n = len(examples)
+    if n == 0:
+        raise ValueError("no evaluation examples")
     risk_ok = cond_ok = rec_ok = valid = 0
     f1s: list[float] = []
     unk_total = unk_humble = known_total = known_conf = 0
@@ -136,30 +139,62 @@ def build_live_contexts(n_engines: int | None = None):
     return contexts, references
 
 
-def main() -> None:
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--backend", choices=["demo", "hf"], default="demo")
-    ap.add_argument("--model", default="Qwen/Qwen2.5-3B-Instruct")
-    ap.add_argument("--adapter", default=None)
-    ap.add_argument("--out", default="reports/metrics_demo.json")
-    args = ap.parse_args()
+def run_service_eval(service, n_engines: int | None = None) -> dict:
+    """Evaluate a live SLMService on the same held-out decision points.
 
-    from src.slm_service import HFBackend, SLMService
-
-    if args.backend == "hf":
-        svc = SLMService(config={"slm": {"model_name": args.model}},
-                         backend=HFBackend(args.model, adapter_path=args.adapter))
-    else:
-        svc = SLMService(config={"slm": {"model_name": "demo-fallback"}})
-
-    contexts, references = build_live_contexts()
+    This is the ONLY evaluation path: it calls service.analyze(context), the
+    same method used by the API and dashboard. No notebook-specific prompt
+    handling, no bypassed validation.
+    """
+    contexts, references = build_live_contexts(n_engines)
     examples = [{"target": json.dumps(ref)} for ref in references]
     it = iter(contexts)
 
-    def analyze_fn(e: dict) -> dict:
-        return svc.analyze(next(it))
+    def analyze_fn(_: dict) -> dict:
+        return service.analyze(next(it))
 
-    metrics = run_harness(examples, analyze_fn)
+    return run_harness(examples, analyze_fn)
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--backend", choices=["demo", "hf", "openai"], default="demo")
+    ap.add_argument("--model", default="Qwen/Qwen2.5-3B-Instruct")
+    ap.add_argument("--adapter", default=None)
+    ap.add_argument("--endpoint", default=None)
+    ap.add_argument("--api-key", default=None)
+    ap.add_argument("--inference-path", default="/v1/chat/completions")
+    ap.add_argument("--limit", type=int, default=None)
+    ap.add_argument("--out", default="reports/metrics_demo.json")
+    args = ap.parse_args()
+
+    from src.slm_service import (
+        HFBackend,
+        OpenAICompatibleBackend,
+        SLMService,
+    )
+
+    if args.backend == "hf":
+        svc = SLMService(
+            config={"slm": {"model_name": args.model}},
+            backend=HFBackend(args.model, adapter_path=args.adapter),
+        )
+    elif args.backend == "openai":
+        if not args.endpoint:
+            raise SystemExit("--endpoint is required for --backend openai")
+        svc = SLMService(
+            config={"slm": {"model_name": args.model}},
+            backend=OpenAICompatibleBackend(
+                args.endpoint,
+                model_name=args.model,
+                api_key=args.api_key,
+                inference_path=args.inference_path,
+            ),
+        )
+    else:
+        svc = SLMService(config={"slm": {"backend": "demo", "model_name": "demo-fallback"}})
+
+    metrics = run_service_eval(svc, args.limit)
     metrics["backend"] = svc.version
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)

@@ -4,15 +4,16 @@ import pytest
 from src.context_builder import build_context
 from src.schemas import Prediction, Telemetry
 from src.slm_eval import _evidence_f1, run_harness
-from src.slm_service import SLMService
+from src.slm_service import DemoBackend, SLMService
 from src.validation import controlled_fallback, extract_json
 
 
 class GoodBackend:
     name = "mock-good"
 
-    def generate(self, prompt: str) -> str:
-        assert "Machine:" in prompt  # grounded in context, not a bare question
+    def generate(self, messages):
+        assert messages[0]["role"] == "system"
+        assert "Machine:" in messages[1]["content"]  # grounded in context
         return ('{"risk_level": "HIGH", "likely_condition": "hpc_degradation", '
                 '"confidence": 0.8, "evidence": ["s3_above_baseline"], '
                 '"recommended_action": "schedule_hpc_inspection", "urgency": "PRIORITY"}')
@@ -70,6 +71,13 @@ def test_demo_backend_tagged_and_valid():
     assert out["meta"]["demo"] is True and out["meta"]["valid"] is True
     chat = svc.chat("What changed?", _context())
     assert "M001" in chat["text"]
+
+
+def test_explicit_demo_backend_wins_over_endpoint():
+    svc = SLMService(config={"slm": {
+        "backend": "demo", "inference_endpoint": "http://example.invalid",
+    }})
+    assert isinstance(svc.backend, DemoBackend)
 
 
 def test_extract_json_none_without_object():

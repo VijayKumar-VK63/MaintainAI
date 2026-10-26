@@ -16,6 +16,7 @@ import sys
 from pathlib import Path
 
 from src.config import load_config
+from src.prompts import render_chat
 
 
 def audit_resources() -> dict:
@@ -43,18 +44,16 @@ def audit_resources() -> dict:
     return info
 
 
-def format_text(system: str, user: str, target: str, tokenizer=None) -> str:
+def format_text(system: str, user: str, target: str, tokenizer=None,
+                messages: list[dict[str, str]] | None = None) -> str:
     """Single canonical training format. ChatML when the tokenizer supports it."""
-    if tokenizer is not None and hasattr(tokenizer, "apply_chat_template"):
-        try:
-            return tokenizer.apply_chat_template(
-                [{"role": "system", "content": system},
-                 {"role": "user", "content": user},
-                 {"role": "assistant", "content": target}],
-                tokenize=False, add_generation_prompt=False)
-        except Exception:
-            pass
-    return (f"<|system|>\n{system}\n<|user|>\n{user}\n<|assistant|>\n{target}")
+    if messages is None:
+        messages = [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+            {"role": "assistant", "content": target},
+        ]
+    return render_chat(tokenizer, messages, add_generation_prompt=False)
 
 
 def load_examples(path: str, limit: int | None = None) -> list[dict]:
@@ -103,7 +102,9 @@ def train(config_path: str, smoke: bool = False, allow_cpu: bool = False) -> dic
     def gen(split: str):
         n = 20 if smoke else None
         for e in load_examples(f"data/slm/{split}.jsonl", limit=n):
-            yield {"text": format_text(e["system"], e["user"], e["target"], tok)}
+            yield {"text": format_text(
+                e["system"], e["user"], e["target"], tok, messages=e.get("messages"),
+            )}
 
     train_ds = Dataset.from_list(list(gen("train")))
     val_ds = Dataset.from_list(list(gen("val")))
@@ -113,7 +114,8 @@ def train(config_path: str, smoke: bool = False, allow_cpu: bool = False) -> dic
     args = SFTConfig(dataset_text_field="text", max_length=max_len,
                      per_device_train_batch_size=int(slm.get("per_device_train_batch_size", 1)),
                      gradient_accumulation_steps=int(slm.get("gradient_accumulation_steps", 4)),
-                     num_train_epochs=epochs, learning_rate=float(slm.get("learning_rate", 2e-4)),
+                     num_train_epochs=epochs, max_steps=10 if smoke else -1,
+                     learning_rate=float(slm.get("learning_rate", 2e-4)),
                      warmup_steps=int(slm.get("warmup_steps", 20)),
                      fp16=not torch.cuda.is_bf16_supported() if res["cuda"] else False,
                      logging_steps=5, eval_steps=50, save_steps=50,
@@ -126,8 +128,27 @@ def train(config_path: str, smoke: bool = False, allow_cpu: bool = False) -> dic
     final = f"{out_dir}/final"
     trainer.save_model(final)
     tok.save_pretrained(final)
-    return {"train_loss": float(stats.training_loss), "output_dir": final,
-            "audit": res, "smoke": smoke}
+    metrics = getattr(stats, "metrics", {}) or {}
+    state = trainer.state
+    eval_losses = [x["eval_loss"] for x in state.log_history if "eval_loss" in x]
+    result = {
+        "train_loss": float(stats.training_loss),
+        "train_runtime_s": float(metrics.get("train_runtime", 0.0)),
+        "eval_loss_best": state.best_metric,
+        "eval_loss_last": eval_losses[-1] if eval_losses else None,
+        "global_step": state.global_step,
+        "output_dir": final,
+        "audit": res,
+        "smoke": smoke,
+        "epochs": epochs,
+        "train_examples": len(train_ds),
+        "val_examples": len(val_ds),
+        "config": config_path,
+    }
+    metrics_path = Path(out_dir) / "train_metrics.json"
+    metrics_path.parent.mkdir(parents=True, exist_ok=True)
+    metrics_path.write_text(json.dumps(result, indent=1), encoding="utf-8")
+    return result
 
 
 def main() -> None:
