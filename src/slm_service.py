@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 import time
 from pathlib import Path
 from typing import Any, Protocol
@@ -180,6 +181,7 @@ class LlamaCppBackend:
         self.name = name
         self._llm = None
         self._grammar = None
+        self._lock = threading.Lock()
 
     def _load(self):
         try:
@@ -213,21 +215,24 @@ class LlamaCppBackend:
             self._llm = Llama(**kwargs)
 
     def _complete(self, messages: list[Message] | str, grammar: Any = None) -> str:
-        if self._llm is None:
-            self._load()
-        assert self._llm is not None
-        if isinstance(messages, str):
-            messages = [{"role": "user", "content": messages}]
-        out = self._llm.create_chat_completion(
-            messages=messages,
-            max_tokens=self.max_new_tokens,
-            temperature=self.temperature,
-            top_p=0.9,
-            repeat_penalty=1.05,
-            seed=self.seed,
-            grammar=grammar,
-        )
-        return str(out["choices"][0]["message"]["content"])
+        # llama.cpp contexts are stateful and not thread-safe. Streamlit can
+        # serve multiple sessions and FastAPI runs sync handlers in threads.
+        with self._lock:
+            if self._llm is None:
+                self._load()
+            assert self._llm is not None
+            if isinstance(messages, str):
+                messages = [{"role": "user", "content": messages}]
+            out = self._llm.create_chat_completion(
+                messages=messages,
+                max_tokens=self.max_new_tokens,
+                temperature=self.temperature,
+                top_p=0.9,
+                repeat_penalty=1.05,
+                seed=self.seed,
+                grammar=grammar,
+            )
+            return str(out["choices"][0]["message"]["content"])
 
     def generate(self, messages: list[Message] | str) -> str:
         return self._complete(messages, self._grammar)
@@ -236,9 +241,10 @@ class LlamaCppBackend:
         return self._complete(messages, None)
 
     def close(self) -> None:
-        if self._llm is not None:
-            self._llm.close()
-            self._llm = None
+        with self._lock:
+            if self._llm is not None:
+                self._llm.close()
+                self._llm = None
 
 
 class OpenAICompatibleBackend:
