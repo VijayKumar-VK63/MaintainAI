@@ -104,8 +104,8 @@ Traditional ML (XGBoost) is great at **predicting numbers** (RUL, failure probab
 - **Same 100 held-out scenarios** for both models
 - **Metrics**: Risk accuracy, Condition accuracy, Evidence F1, Recommendation accuracy, Validity rate, Uncertainty skill, Latency
 - **Single evaluation path**: `src.slm_eval.run_service_eval` calls the same `SLMService.analyze` used by the API/dashboard
-- **Commands**: `python -m src.slm_eval --backend demo|hf|openai ...` then `python scripts/compare_slm.py`
-- **Status**: demo-fallback measured; base/fine-tuned rows are pending a valid GPU rerun (previous notebook runs failed before model output due to a harness import bug)
+- **Commands**: `python -m src.slm_eval --backend demo|hf|llamacpp|openai ...` then `python scripts/compare_slm.py`
+- **Status**: demo-fallback, Qwen2.5-3B base, and 1-epoch LoRA measured locally on CPU (llama.cpp Q4_K_M, grammar-constrained); LoRA is 100% valid with 0.980 risk, 0.730 condition, 0.701 evidence F1; 3-epoch adapter GPU rerun pending
 
 ### ✅ Phase 8: Simulator & FastAPI
 - **Physics-grounded simulator** — FD001 sensor baselines + degradation drift patterns
@@ -302,9 +302,12 @@ MaintainAI/
 ### Environment Variables (`.env`)
 ```bash
 # Copy .env.example to .env and fill in
-SLM_BACKEND=demo                          # demo | transformers | openai
+SLM_BACKEND=demo                          # demo | transformers | llamacpp | openai
 SLM_MODEL_NAME=Qwen/Qwen2.5-3B-Instruct
-SLM_ADAPTER_PATH=                         # Used when SLM_BACKEND=transformers
+SLM_MODEL_PATH=                           # Base .gguf when SLM_BACKEND=llamacpp
+SLM_ADAPTER_PATH=                         # PEFT dir or GGUF LoRA
+SLM_LORA_SCALE=1.0                        # llama.cpp LoRA multiplier
+SLM_CONSTRAINED=true                      # Force schema-valid JSON (GBNF)
 SLM_INFERENCE_ENDPOINT=                   # Used when SLM_BACKEND=openai
 SLM_INFERENCE_PATH=/v1/chat/completions   # llama.cpp/vLLM/TGI (use /generate for TGI)
 SLM_API_KEY=                              # Bearer token (falls back to HF_TOKEN)
@@ -317,6 +320,7 @@ MODEL_DIR=models
 | Mode | When to use | What loads |
 |------|-------------|------------|
 | `demo` | Default local/CPU/Streamlit Cloud | Rule-based mirror, clearly bannered |
+| `llamacpp` | CPU-only local, no GPU/server | Quantized GGUF + optional GGUF LoRA, in-process, optional GBNF JSON grammar |
 | `transformers` | Colab/GPU/local with adapter | 4-bit Qwen + PEFT adapter |
 | `openai` | llama.cpp, vLLM, TGI, HF endpoint | HTTP chat-completions backend |
 
@@ -356,6 +360,15 @@ python -m src.slm_eval --backend hf --out reports/metrics_base.json
 python -m src.slm_eval --backend hf --adapter slm/checkpoints/final \
   --out reports/metrics_finetuned.json
 
+# CPU-only, in-process llama.cpp (no server, no GPU)
+python -m src.slm_eval --backend llamacpp \
+  --gguf models/slm/Qwen2.5-3B-Instruct-Q4_K_M.gguf \
+  --constrained --out reports/metrics_base.json
+python -m src.slm_eval --backend llamacpp \
+  --gguf models/slm/Qwen2.5-3B-Instruct-Q4_K_M.gguf \
+  --adapter models/slm/maintainai-qwen2.5-3b-lora.gguf \
+  --constrained --out reports/metrics_finetuned.json
+
 # Remote llama.cpp/vLLM/TGI endpoint
 python -m src.slm_eval --backend openai --endpoint http://localhost:8001 \
   --out reports/metrics_finetuned.json
@@ -382,25 +395,42 @@ python scripts/compare_slm.py
 | System | Risk Acc | Cond Acc | Evidence F1 | Validity | Status |
 |--------|----------|----------|-------------|----------|--------|
 | Demo Fallback | 1.000 | 0.730 | 0.235 | 1.000 | ✅ Measured |
-| Qwen2.5-3B Base | — | — | — | — | ⏳ Pending |
-| Qwen2.5-3B + LoRA | — | — | — | — | ⏳ Pending |
+| Qwen2.5-3B Base (Q4_K_M, CPU, grammar) | 0.650 | 0.590 | 0.000 | 0.800 | ✅ Measured |
+| Qwen2.5-3B + LoRA (Q4_K_M, CPU, grammar) | 0.980 | 0.730 | 0.701 | 1.000 | ✅ Measured |
 
-> `pending` means unmeasured, never zero-filled. Notebooks 06/08 now call the
-> same `run_service_eval` path; rerun them with the fixed harness to fill the rows.
+> Local CPU run, 12 threads, `max_new_tokens=160`, grammar-constrained JSON
+> (`--constrained`). LoRA: recommendation acc 0.940, unknown-uncertainty 0.909,
+> known-confidence 0.962, 12.1 s/example. Base: recommendation acc 0.000,
+> unknown-uncertainty 0.000, 32.3 s/example; 20/100 generations hit the token
+> cap while rambling inside a field, so validity is 0.800. The fine-tuned model
+> is 100% schema-valid and beats the base on every content metric. The local
+> adapter is the 1-epoch checkpoint (160 steps); the 3-epoch Colab adapter
+> should improve condition accuracy. `pending` means unmeasured, never
+> zero-filled. Unconstrained ablation: base 0% valid, LoRA 64% valid
+> (`reports/metrics_*_unconstrained.json`).
 
 ---
 
 ## 🚀 Running the Fine-Tuned Model
 
 ### Option A — llama.cpp (CPU, local)
-Convert the base model and adapter to GGUF, then start an OpenAI-compatible server.
-See `docs/GGUF_SETUP.md` for the full conversion commands.
+Run the quantized model in-process (no server) or behind an OpenAI-compatible
+server. Prepare the GGUF files once:
 ```bash
-# After conversion (base + adapter .gguf files):
-llama-server -m maintainai-qwen2.5-3b.q4_k_m.gguf \
-  --lora adapter.gguf -c 2048 --port 8001 --host 0.0.0.0 --no-webui
-
-# Point MaintainAI at it:
+python scripts/prepare_local_slm.py   # clone llama.cpp, download base, convert LoRA
+```
+In-process (used by the dashboard and `src.slm_eval`):
+```bash
+export SLM_BACKEND=llamacpp
+export SLM_MODEL_PATH=models/slm/Qwen2.5-3B-Instruct-Q4_K_M.gguf
+export SLM_ADAPTER_PATH=models/slm/maintainai-qwen2.5-3b-lora.gguf
+export SLM_CONSTRAINED=true
+```
+Server mode (same files):
+```bash
+llama-server -m models/slm/Qwen2.5-3B-Instruct-Q4_K_M.gguf \
+  --lora models/slm/maintainai-qwen2.5-3b-lora.gguf \
+  -c 2048 --port 8001 --host 0.0.0.0 --no-webui
 export SLM_BACKEND=openai
 export SLM_INFERENCE_ENDPOINT=http://localhost:8001
 export SLM_INFERENCE_PATH=/v1/chat/completions
@@ -428,8 +458,8 @@ No endpoint configured -> demo fallback with a visible warning.
 ## 🔮 Near-Future Roadmap
 
 ### Immediate (Next 1–2 Weeks)
-- [ ] **Complete notebook 08** — Fine-tuned evaluation on Colab GPU
-- [ ] **Update comparison table** — Fill in base vs fine-tuned metrics
+- [ ] **Complete notebook 08** — 3-epoch adapter evaluation on Colab GPU
+- [x] **Update comparison table** — Base vs 1-epoch LoRA measured locally on CPU (Q4_K_M)
 - [ ] **Deploy HF Inference Endpoint** — Enable production SLM
 - [ ] **Add SHAP explanations** — Feature importance for XGBoost predictions
 

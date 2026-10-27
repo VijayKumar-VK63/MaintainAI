@@ -1,0 +1,16 @@
+{
+ "n": 100,
+ "risk_accuracy": 0.63,
+ "condition_accuracy": 0.44,
+ "evidence_f1_mean": 0.7008184523809521,
+ "recommendation_accuracy": 0.61,
+ "validity_rate": 0.64,
+ "uncertainty_skill": {
+  "unknown_admits_uncertainty": 0.8,
+  "known_confident": 0.9830508474576272,
+  "n_unknown": 5
+ },
+ "latency_mean_ms": 28017.568575999987,
+ "n_failures": 36,
+ "backend": "llamacpp:Qwen2.5-3B-Instruct-Q4_K_M.gguf+maintainai-qwen2.5-3b-lora.gguf"
+}

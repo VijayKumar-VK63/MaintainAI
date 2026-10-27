@@ -1,8 +1,23 @@
 # llama.cpp setup (CPU inference)
 
-Convert the Qwen2.5-3B base and the MaintainAI LoRA adapter to GGUF, then serve
-them with llama.cpp's OpenAI-compatible API. The dashboard uses
-`SLM_BACKEND=openai` and `SLM_INFERENCE_PATH=/v1/chat/completions`.
+Two ways to run the quantized model:
+
+- **In-process** (`SLM_BACKEND=llamacpp`) — no server; the dashboard and
+  `src.slm_eval` load the GGUF directly through `llama-cpp-python`.
+- **Server** (`SLM_BACKEND=openai`) — `llama-server` exposes an
+  OpenAI-compatible `/v1/chat/completions` endpoint.
+
+The quickest path is the automated helper:
+
+```bash
+pip install llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
+python scripts/prepare_local_slm.py
+```
+
+It clones llama.cpp into `models/slm/llama.cpp`, downloads
+`models/slm/Qwen2.5-3B-Instruct-Q4_K_M.gguf`, and converts
+`slm/checkpoints/final` to `models/slm/maintainai-qwen2.5-3b-lora.gguf`.
+Skip steps with `--skip-download` / `--skip-convert`.
 
 ## 1. Build llama.cpp (WSL2 recommended on Windows)
 
@@ -52,7 +67,42 @@ different flag names.
 Windows native alternative: use `llama-server.exe` from the official releases
 and pass the same flags.
 
+To constrain the server too, export the grammar and add `--grammar-file`:
+
+```bash
+python -c "from src.slm_grammar import SLM_JSON_GRAMMAR; open('slm_json.gbnf','w',encoding='utf-8').write(SLM_JSON_GRAMMAR)"
+./build/bin/llama-server -m maintainai-qwen2.5-3b.q4_k_m.gguf \
+  --lora adapter.gguf --grammar-file slm_json.gbnf \
+  -c 2048 --port 8001 --host 0.0.0.0 --no-webui
+```
+
 ## 5. Connect MaintainAI
+
+### In-process (no server)
+
+```powershell
+$env:SLM_BACKEND="llamacpp"
+$env:SLM_MODEL_PATH="models/slm/Qwen2.5-3B-Instruct-Q4_K_M.gguf"
+$env:SLM_ADAPTER_PATH="models/slm/maintainai-qwen2.5-3b-lora.gguf"
+$env:SLM_LORA_SCALE="1.0"
+$env:SLM_CONSTRAINED="true"
+streamlit run app/streamlit_app.py
+```
+
+```bash
+# bash
+export SLM_BACKEND=llamacpp
+export SLM_MODEL_PATH=models/slm/Qwen2.5-3B-Instruct-Q4_K_M.gguf
+export SLM_ADAPTER_PATH=models/slm/maintainai-qwen2.5-3b-lora.gguf
+export SLM_CONSTRAINED=true
+```
+
+The native backend preloads `llama_cpp` before pandas/pyarrow/torch to avoid a
+Windows DLL conflict; importing `src` triggers this automatically.
+`SLM_CONSTRAINED=true` applies the GBNF grammar in-process, so the JSON shape,
+enums, and confidence range are guaranteed.
+
+### Server mode (OpenAI-compatible)
 
 ```powershell
 # PowerShell
@@ -71,6 +121,17 @@ export SLM_INFERENCE_PATH=/v1/chat/completions
 ```
 
 ## Verify
+
+In-process smoke test:
+
+```bash
+python -m src.slm_eval --backend llamacpp \
+  --gguf models/slm/Qwen2.5-3B-Instruct-Q4_K_M.gguf \
+  --adapter models/slm/maintainai-qwen2.5-3b-lora.gguf \
+  --limit 3 --n-threads 12 --constrained --out reports/_smoke.json
+```
+
+Server mode:
 
 ```bash
 curl -X POST http://localhost:8001/v1/chat/completions \

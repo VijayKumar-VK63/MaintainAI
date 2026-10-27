@@ -21,14 +21,44 @@
    }
   },
   "qwen2.5-3b-base": {
-   "status": "pending",
-   "metrics": null,
-   "note": "missing or invalid reports\\metrics_base.json"
+   "status": "measured",
+   "metrics": {
+    "n": 100,
+    "risk_accuracy": 0.65,
+    "condition_accuracy": 0.59,
+    "evidence_f1_mean": 0.0,
+    "recommendation_accuracy": 0.0,
+    "validity_rate": 0.8,
+    "uncertainty_skill": {
+     "unknown_admits_uncertainty": 0.0,
+     "known_confident": 1.0,
+     "n_unknown": 15
+    },
+    "latency_mean_ms": 32267.841510999984,
+    "n_failures": 20,
+    "n_errors": 0,
+    "backend": "llamacpp:Qwen2.5-3B-Instruct-Q4_K_M.gguf"
+   }
   },
   "qwen2.5-3b-lora": {
-   "status": "pending",
-   "metrics": null,
-   "note": "missing or invalid reports\\metrics_finetuned.json"
+   "status": "measured",
+   "metrics": {
+    "n": 100,
+    "risk_accuracy": 0.98,
+    "condition_accuracy": 0.73,
+    "evidence_f1_mean": 0.7013333333333331,
+    "recommendation_accuracy": 0.94,
+    "validity_rate": 1.0,
+    "uncertainty_skill": {
+     "unknown_admits_uncertainty": 0.9090909090909091,
+     "known_confident": 0.9615384615384616,
+     "n_unknown": 22
+    },
+    "latency_mean_ms": 12102.104805999994,
+    "n_failures": 0,
+    "n_errors": 0,
+    "backend": "llamacpp:Qwen2.5-3B-Instruct-Q4_K_M.gguf+maintainai-qwen2.5-3b-lora.gguf"
+   }
   }
  }
 }
