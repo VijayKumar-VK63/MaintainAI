@@ -74,6 +74,7 @@ def load_config(path: str | Path) -> dict[str, Any]:
         ("n_threads", "SLM_N_THREADS"),
         ("n_batch", "SLM_N_BATCH"),
         ("max_new_tokens", "SLM_MAX_NEW_TOKENS"),
+        ("chat_max_new_tokens", "SLM_CHAT_MAX_NEW_TOKENS"),
         ("seed", "SLM_SEED"),
     ):
         value = _env_int(env_name)
@@ -82,6 +83,7 @@ def load_config(path: str | Path) -> dict[str, Any]:
     for key, env_name in (
         ("lora_scale", "SLM_LORA_SCALE"),
         ("temperature", "SLM_TEMPERATURE"),
+        ("chat_temperature", "SLM_CHAT_TEMPERATURE"),
     ):
         value = _env_float(env_name)
         if value is not None:

@@ -43,6 +43,17 @@ def _context():
     return build_context(tel, None, pred, ["hpc_degradation"])
 
 
+CRITICAL_ANALYSIS = {
+    "risk_level": "CRITICAL",
+    "likely_condition": "unknown_anomaly",
+    "confidence": 0.45,
+    "evidence": ["rul_low", "failure_probability_high"],
+    "recommended_action": "escalate_immediate_review",
+    "urgency": "IMMEDIATE",
+    "meta": {"valid": True},
+}
+
+
 def test_valid_output_passes_through():
     svc = SLMService(backend=GoodBackend())
     out = svc.analyze(_context())
@@ -61,7 +72,11 @@ def test_backend_crash_never_raises():
     svc = SLMService(backend=ExplodingBackend())
     out = svc.analyze(_context())  # must not raise
     assert out["meta"]["valid"] is False
-    chat = svc.chat("Why high risk?", _context())
+    chat = svc.chat(
+        "Compare this machine to a car.",
+        _context(),
+        analysis=CRITICAL_ANALYSIS,
+    )
     assert "temporarily unavailable" in chat["text"]
 
 
@@ -79,14 +94,19 @@ class FreeTextBackend:
     def generate(self, messages):
         raise AssertionError("constrained JSON path must not be used for chat")
 
-    def generate_free(self, messages):
+    def generate_free(self, messages, max_tokens=None, temperature=None):
         return "Inspect the HPC outlet temperature sensor."
 
 
 def test_chat_uses_free_text_not_json_grammar():
     svc = SLMService(backend=FreeTextBackend())
-    out = svc.chat("What should we inspect?", _context())
+    out = svc.chat(
+        "Compare this machine to a car.",
+        _context(),
+        analysis=CRITICAL_ANALYSIS,
+    )
     assert out["text"] == "Inspect the HPC outlet temperature sensor."
+    assert out["meta"]["source"] == "slm"
 
 
 def test_explicit_demo_backend_wins_over_endpoint():

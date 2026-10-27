@@ -14,7 +14,7 @@ from google.colab import drive
 drive.mount('/content/drive')
 
 # Create directory structure
-!mkdir -p /content/drive/MyDrive/MaintainAI/{datasets,models,checkpoints,experiments,logs,exports,reports}
+!mkdir -p /content/drive/MyDrive/MaintainAI/{datasets,models,checkpoints,logs,exports,reports}
 !mkdir -p /content/drive/MyDrive/MaintainAI/code
 ```
 
@@ -22,7 +22,7 @@ drive.mount('/content/drive')
 ```bash
 # Option A: Clone directly in Colab
 %cd /content/drive/MyDrive/MaintainAI
-!git clone https://github.com/YOUR_USERNAME/MaintainAI.git code
+!git clone https://github.com/VijayKumar-VK63/MaintainAI.git code
 
 # Option B: Upload zip via Colab file browser and unzip
 # !unzip -q MaintainAI.zip -d /content/drive/MyDrive/MaintainAI/code
@@ -37,8 +37,6 @@ drive.mount('/content/drive')
 │   └── predictive/          # Predictive model artifacts (from notebook 04)
 ├── slm/
 │   └── checkpoints/         # QLoRA checkpoints + final adapter
-├── experiments/
-│   └── exp_001/             # Experiment notes/metrics
 ├── logs/
 ├── exports/
 └── reports/                 # Evaluation metrics (metrics_base.json, metrics_finetuned.json)

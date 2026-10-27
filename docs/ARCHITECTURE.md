@@ -7,6 +7,10 @@ flowchart TD
     PRE --> ML[XGBoost: RUL + risk]
     ML --> CTX[ContextBuilder]
     CTX --> MSG[prompts.build_messages]
+    CTX --> ANALYZE[Validated assessment]
+    ANALYZE --> CHAT{Common question?}
+    CHAT -->|yes| DET[Deterministic grounded answer]
+    CHAT -->|no| BACKEND
     MSG --> BACKEND{SLM backend (auto)}
     BACKEND -->|llamacpp| LLAMA[GGUF + LoRA, CPU]
     BACKEND -->|transformers| HF[Qwen + LoRA 4-bit]
@@ -18,12 +22,16 @@ flowchart TD
     HTTP --> VAL
     VAL --> API[FastAPI]
     VAL --> UI[Streamlit]
+    DET --> API
+    DET --> UI
 ```
 
 ## Invariants
 - `MaintainAIEngine` is the only orchestrator; API and UI are transport layers.
 - `src/prompts.py` is the only prompt builder; training and inference use the
   same chat messages.
+- `src/chat_templates.py` answers common maintenance questions deterministically
+  and guards free-form answers against contradictory values.
 - SLM failures fall back to a schema-valid UNKNOWN analysis, never crash.
 - No configured backend -> explicit startup error; `demo` requires opt-in.
 - Predictive failures return 503; stale telemetry returns 409.

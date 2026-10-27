@@ -46,6 +46,7 @@ class MaintainAIEngine:
         self.predictor = self._load_predictor()
         self.slm = SLMService(config=self.config)
         self.knowledge = self.slm.knowledge
+        self._analysis_cache: dict[tuple[str, int, str], dict[str, Any]] = {}
 
     def _load_predictor(self):
         try:
@@ -116,9 +117,20 @@ class MaintainAIEngine:
         ctx = build_context(current, previous, pred, KNOWN_CONDITIONS)
         return buf, pred, ctx
 
+    def _analysis_for(self, machine_id: str, ctx: MachineContext) -> dict[str, Any]:
+        key = (machine_id, ctx.current.cycle, ctx.current.timestamp.isoformat())
+        cached = self._analysis_cache.get(key)
+        if cached is None:
+            cached = self.slm.analyze(ctx)
+            self._analysis_cache[key] = cached
+            if len(self._analysis_cache) > 8:
+                oldest = next(iter(self._analysis_cache))
+                self._analysis_cache.pop(oldest, None)
+        return cached
+
     def snapshot(self, machine_id: str) -> dict[str, Any]:
         buf, pred, ctx = self._build(machine_id)
-        analysis = self.slm.analyze(ctx)
+        analysis = self._analysis_for(machine_id, ctx)
         return {
             "telemetry": buf[-1],
             "history": buf,
@@ -128,9 +140,16 @@ class MaintainAIEngine:
             "backend": self.slm.version,
         }
 
-    def chat(self, machine_id: str, question: str) -> dict[str, Any]:
+    def chat(
+        self,
+        machine_id: str,
+        question: str,
+        analysis: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         _, _, ctx = self._build(machine_id)
-        return self.slm.chat(question, ctx)
+        if analysis is None:
+            analysis = self._analysis_for(machine_id, ctx)
+        return self.slm.chat(question, ctx, analysis=analysis)
 
     def context(self, machine_id: str) -> MachineContext:
         _, _, ctx = self._build(machine_id)

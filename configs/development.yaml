@@ -20,7 +20,9 @@ slm:
   api_key: ""
   include_knowledge: false
   max_new_tokens: 256
+  chat_max_new_tokens: 96
   temperature: 0.2
+  chat_temperature: 0.0
   max_seq_length: 1024
   trust_remote_code: false
 

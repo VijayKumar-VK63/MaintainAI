@@ -19,8 +19,13 @@ def machine_state(svc: dict[str, Any], machine_id: str) -> dict[str, Any]:
     return svc["engine"].snapshot(machine_id)
 
 
-def chat(svc: dict[str, Any], machine_id: str, question: str) -> dict[str, Any]:
-    return svc["engine"].chat(machine_id, question)
+def chat(
+    svc: dict[str, Any],
+    machine_id: str,
+    question: str,
+    analysis: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return svc["engine"].chat(machine_id, question, analysis=analysis)
 
 
 __all__ = ["create_services", "machine_state", "chat"]

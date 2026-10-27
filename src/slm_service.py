@@ -28,10 +28,17 @@ import time
 from pathlib import Path
 from typing import Any, Protocol
 
+from src.chat_templates import (
+    answer_from_assessment,
+    assessment_valid,
+    guard_chat_text,
+    invalid_reply,
+    summary_reply,
+)
 from src.context_builder import render_prompt
 from src.knowledge import KnowledgeService
 from src.predictive import health_state
-from src.prompts import build_messages, render_chat
+from src.prompts import build_chat_messages, build_messages, render_chat
 from src.schemas import MachineContext, SLMAnalysis
 from src.slm_grammar import SLM_JSON_GRAMMAR
 from src.validation import (
@@ -135,6 +142,22 @@ class TransformersBackend:
         self._pipe = pipeline("text-generation", model=model, tokenizer=tok, **pipe_kwargs)
 
     def generate(self, messages: list[Message] | str) -> str:
+        return self._generate(messages)
+
+    def generate_free(
+        self,
+        messages: list[Message] | str,
+        max_tokens: int | None = None,
+        temperature: float | None = None,
+    ) -> str:
+        return self._generate(messages, max_tokens=max_tokens, temperature=temperature)
+
+    def _generate(
+        self,
+        messages: list[Message] | str,
+        max_tokens: int | None = None,
+        temperature: float | None = None,
+    ) -> str:
         if self._pipe is None:
             self._load()
         assert self._pipe is not None
@@ -142,7 +165,14 @@ class TransformersBackend:
             prompt = messages
         else:
             prompt = render_chat(self._tok, messages, add_generation_prompt=True)
-        return str(self._pipe(prompt)[0]["generated_text"])
+        kwargs: dict[str, Any] = {}
+        if max_tokens is not None:
+            kwargs["max_new_tokens"] = max_tokens
+        if temperature is not None:
+            kwargs["do_sample"] = temperature > 0
+            if temperature > 0:
+                kwargs["temperature"] = temperature
+        return str(self._pipe(prompt, **kwargs)[0]["generated_text"])
 
 
 # Backwards-compatible name used by notebooks and older imports.
@@ -214,7 +244,13 @@ class LlamaCppBackend:
         with suppress_stdout_stderr(disable=self.verbose):
             self._llm = Llama(**kwargs)
 
-    def _complete(self, messages: list[Message] | str, grammar: Any = None) -> str:
+    def _complete(
+        self,
+        messages: list[Message] | str,
+        grammar: Any = None,
+        max_tokens: int | None = None,
+        temperature: float | None = None,
+    ) -> str:
         # llama.cpp contexts are stateful and not thread-safe. Streamlit can
         # serve multiple sessions and FastAPI runs sync handlers in threads.
         with self._lock:
@@ -225,8 +261,8 @@ class LlamaCppBackend:
                 messages = [{"role": "user", "content": messages}]
             out = self._llm.create_chat_completion(
                 messages=messages,
-                max_tokens=self.max_new_tokens,
-                temperature=self.temperature,
+                max_tokens=self.max_new_tokens if max_tokens is None else max_tokens,
+                temperature=self.temperature if temperature is None else temperature,
                 top_p=0.9,
                 repeat_penalty=1.05,
                 seed=self.seed,
@@ -237,8 +273,15 @@ class LlamaCppBackend:
     def generate(self, messages: list[Message] | str) -> str:
         return self._complete(messages, self._grammar)
 
-    def generate_free(self, messages: list[Message] | str) -> str:
-        return self._complete(messages, None)
+    def generate_free(
+        self,
+        messages: list[Message] | str,
+        max_tokens: int | None = None,
+        temperature: float | None = None,
+    ) -> str:
+        return self._complete(
+            messages, None, max_tokens=max_tokens, temperature=temperature
+        )
 
     def close(self) -> None:
         with self._lock:
@@ -270,6 +313,22 @@ class OpenAICompatibleBackend:
         return f"{self.endpoint}/{self.inference_path.lstrip('/')}"
 
     def generate(self, messages: list[Message] | str) -> str:
+        return self._post(messages)
+
+    def generate_free(
+        self,
+        messages: list[Message] | str,
+        max_tokens: int | None = None,
+        temperature: float | None = None,
+    ) -> str:
+        return self._post(messages, max_tokens=max_tokens, temperature=temperature)
+
+    def _post(
+        self,
+        messages: list[Message] | str,
+        max_tokens: int | None = None,
+        temperature: float | None = None,
+    ) -> str:
         import requests
 
         if isinstance(messages, str):
@@ -278,7 +337,9 @@ class OpenAICompatibleBackend:
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
 
-        parameters = {"max_new_tokens": self.max_new_tokens, "temperature": self.temperature}
+        tokens = self.max_new_tokens if max_tokens is None else max_tokens
+        temp = self.temperature if temperature is None else temperature
+        parameters = {"max_new_tokens": tokens, "temperature": temp}
         if self.inference_path.endswith("/generate"):
             payload = {
                 "inputs": render_chat(None, messages, add_generation_prompt=True),
@@ -288,8 +349,8 @@ class OpenAICompatibleBackend:
             payload = {
                 "model": self.model_name,
                 "messages": messages,
-                "max_tokens": self.max_new_tokens,
-                "temperature": self.temperature,
+                "max_tokens": tokens,
+                "temperature": temp,
             }
 
         resp = requests.post(self.url, json=payload, headers=headers, timeout=self.timeout)
@@ -317,6 +378,18 @@ class SLMService:
         self.model_name: str = slm.get("model_name", "Qwen/Qwen2.5-3B-Instruct")
         self.knowledge = KnowledgeService()
         self.include_knowledge = bool(slm.get("include_knowledge", False))
+        chat_max = slm.get("chat_max_new_tokens")
+        if chat_max is None:
+            chat_max = os.getenv("SLM_CHAT_MAX_NEW_TOKENS", 96)
+        self.chat_max_new_tokens = int(chat_max)
+        chat_temp = slm.get("chat_temperature")
+        if chat_temp is None:
+            chat_temp = os.getenv("SLM_CHAT_TEMPERATURE", 0.0)
+        self.chat_temperature = float(chat_temp)
+        self.decision_threshold = float(
+            self.config.get("predictive", {}).get("decision_threshold", 0.65)
+        )
+        self.rul_cap = int(self.config.get("predictive", {}).get("rul_cap", 125))
 
         if backend is not None:
             self.backend: Backend = backend
@@ -443,36 +516,96 @@ class SLMService:
         result["meta"]["latency_ms"] = (time.perf_counter() - t0) * 1000.0
         return result
 
-    def chat(self, question: str, context: MachineContext) -> dict[str, Any]:
-        """Grounded assistant turn. Free text, but evidence-scoped prompt."""
-        question = question[:1000]
+    def _generate_free(self, messages: list[Message]) -> str:
+        backend = self.backend
+        free = getattr(backend, "generate_free", None)
+        if callable(free):
+            try:
+                return free(
+                    messages,
+                    max_tokens=self.chat_max_new_tokens,
+                    temperature=self.chat_temperature,
+                )
+            except TypeError:
+                # Backwards-compatible custom backend without the optional args.
+                return free(messages)
+        return self._generate(messages)
+
+    def chat(
+        self,
+        question: str,
+        context: MachineContext,
+        analysis: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Answer from the validated assessment, with a grounded SLM fallback."""
+        question = question[:1000].strip()
         t0 = time.perf_counter()
-        if isinstance(self.backend, DemoBackend):
-            a = self.analyze(context)
-            text = (
-                f"Machine {context.machine_id} is at {a['risk_level']} risk "
-                f"(likely condition: {a['likely_condition']}, "
-                f"failure probability {context.prediction.failure_probability:.0%}, "
-                f"RUL ~{context.prediction.rul_cycles} cycles). "
-                f"Evidence: {', '.join(a['evidence'])}. "
-                f"Recommended action: {a['recommended_action']} "
-                f"(urgency {a['urgency']}). Demo rule mirror - not the fine-tuned SLM."
-            )
-            return {"text": text, "meta": {"backend": self.backend.name, "demo": True,
-                                           "latency_ms": (time.perf_counter() - t0) * 1000.0}}
-        messages = self._messages(context)
-        messages[-1]["content"] += (
-            "\n\nAnswer in 1-3 plain-text sentences (not JSON). Answer ONLY from "
-            f"the evidence above; say when evidence is insufficient.\nQuestion: {question}"
+        if analysis is None:
+            analysis = self.analyze(context)
+        valid = assessment_valid(analysis)
+
+        text = answer_from_assessment(
+            context,
+            analysis,
+            question,
+            decision_threshold=self.decision_threshold,
+            rul_cap=self.rul_cap,
         )
-        try:
-            free = getattr(self.backend, "generate_free", None)
-            text = free(messages) if callable(free) else self._generate(messages)
-        except Exception as exc:  # noqa: BLE001
-            return {"text": "AI analysis temporarily unavailable. Machine monitoring and numerical prediction remain available.",
-                    "meta": {"backend": self.backend.name, "valid": False, "reason": type(exc).__name__}}
-        return {"text": text, "meta": {"backend": self.backend.name,
-                                       "latency_ms": (time.perf_counter() - t0) * 1000.0}}
+        source = "template"
+
+        if text is None:
+            if isinstance(self.backend, DemoBackend) or not valid:
+                text = (
+                    summary_reply(
+                        context, analysis, self.decision_threshold, self.rul_cap
+                    )
+                    if valid
+                    else invalid_reply(context)
+                )
+                source = "guardrail"
+            else:
+                messages = build_chat_messages(
+                    context,
+                    analysis,
+                    question,
+                    decision_threshold=self.decision_threshold,
+                    rul_cap=self.rul_cap,
+                )
+                try:
+                    raw = self._generate_free(messages)
+                except Exception as exc:  # noqa: BLE001
+                    return {
+                        "text": "AI analysis temporarily unavailable. Machine monitoring "
+                        "and numerical prediction remain available.",
+                        "meta": {
+                            "backend": self.backend.name,
+                            "valid": False,
+                            "reason": type(exc).__name__,
+                            "source": "error",
+                        },
+                    }
+                guarded = guard_chat_text(
+                    raw,
+                    context,
+                    analysis,
+                    decision_threshold=self.decision_threshold,
+                    rul_cap=self.rul_cap,
+                )
+                text = guarded
+                source = "slm" if guarded == raw.strip() else "guardrail"
+
+        if analysis.get("meta", {}).get("demo") and "Demo rule mirror" not in text:
+            text += " Demo rule mirror - not the fine-tuned SLM."
+
+        return {
+            "text": text,
+            "meta": {
+                "backend": self.backend.name,
+                "valid": valid,
+                "source": source,
+                "latency_ms": (time.perf_counter() - t0) * 1000.0,
+            },
+        }
 
     @staticmethod
     def health_from_prediction(failure_probability: float) -> str:

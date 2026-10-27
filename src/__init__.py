@@ -59,7 +59,6 @@ from src.slm_service import (
 )
 from src.validation import validate_slm_output, controlled_fallback, extract_json
 from src.knowledge import KnowledgeService
-from src.services import ServiceFactory, create_services, machine_state, chat
 
 __all__ = [
     "load_config",
@@ -112,8 +111,4 @@ __all__ = [
     "controlled_fallback",
     "extract_json",
     "KnowledgeService",
-    "ServiceFactory",
-    "create_services",
-    "machine_state",
-    "chat",
 ]
