@@ -28,11 +28,14 @@ def test_simulator_rejects_bad_scenario():
 
 
 def _client():
-    return TestClient(create_app("configs/development.yaml"))
+    return TestClient(create_app("configs/test.yaml"))
 
 
-def test_api_health_and_machines():
+def test_api_root_and_health():
     c = _client()
+    root = c.get("/")
+    assert root.status_code == 200
+    assert root.json()["service"] == "MaintainAI API"
     assert c.get("/health").json()["status"] == "ok"
     assert "M001" in c.get("/machines").json()["machines"]
 

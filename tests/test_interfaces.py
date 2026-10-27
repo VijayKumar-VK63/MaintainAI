@@ -1,6 +1,7 @@
 """Tests for canonical prompts, backend selection, and the shared engine."""
 import pytest
 
+from src.config import load_config
 from src.engine import (
     MaintainAIEngine,
     TelemetryStaleError,
@@ -10,7 +11,7 @@ from src.prompts import SYSTEM_PROMPT, build_messages
 from src.schemas import MachineContext, Prediction, Telemetry
 from src.slm_eval import run_service_eval
 from src.slm_service import (
-    DemoBackend,
+    LlamaCppBackend,
     OpenAICompatibleBackend,
     SLMService,
     extract_json,
@@ -45,10 +46,34 @@ def test_extract_json_import_is_available_for_notebooks():
     assert extract_json('{"risk_level": "LOW"}') == {"risk_level": "LOW"}
 
 
-def test_factory_defaults_to_demo():
-    svc = SLMService(config={"slm": {"backend": "demo"}})
-    assert isinstance(svc.backend, DemoBackend)
-    assert svc.version == "demo-fallback"
+def test_factory_auto_prefers_remote_endpoint():
+    svc = SLMService(config={"slm": {"backend": "auto",
+                                    "inference_endpoint": "http://localhost:8001"}})
+    assert isinstance(svc.backend, OpenAICompatibleBackend)
+
+
+def test_factory_auto_selects_local_gguf(tmp_path):
+    model = tmp_path / "base.gguf"
+    model.write_bytes(b"not-a-real-model")
+    svc = SLMService(config={"slm": {"backend": "auto", "model_path": str(model)}})
+    assert isinstance(svc.backend, LlamaCppBackend)
+
+
+def test_factory_auto_requires_a_backend():
+    with pytest.raises(RuntimeError, match="No SLM backend is configured"):
+        SLMService(config={"slm": {"backend": "auto"}})
+
+
+def test_env_overrides_yaml_config(monkeypatch, tmp_path):
+    path = tmp_path / "config.yaml"
+    path.write_text("slm:\n  backend: demo\n  max_new_tokens: 10\n", encoding="utf-8")
+    monkeypatch.setenv("SLM_BACKEND", "openai")
+    monkeypatch.setenv("SLM_MAX_NEW_TOKENS", "77")
+    monkeypatch.setenv("SLM_CONSTRAINED", "true")
+    cfg = load_config(path)
+    assert cfg["slm"]["backend"] == "openai"
+    assert cfg["slm"]["max_new_tokens"] == 77
+    assert cfg["slm"]["constrained"] is True
 
 
 def test_factory_selects_openai_from_endpoint():
@@ -86,7 +111,7 @@ def test_openai_backend_sends_messages_and_auth(monkeypatch):
 
 
 def test_engine_errors_before_telemetry():
-    engine = MaintainAIEngine("configs/development.yaml")
+    engine = MaintainAIEngine("configs/test.yaml")
     with pytest.raises(TelemetryStaleError):
         engine.snapshot("M001")
     with pytest.raises(UnknownMachineError):
@@ -102,7 +127,7 @@ def test_eval_service_path_uses_production_pipeline():
 
 
 def test_engine_snapshot_end_to_end():
-    engine = MaintainAIEngine("configs/development.yaml")
+    engine = MaintainAIEngine("configs/test.yaml")
     engine.sim.start()
     for _ in range(5):
         engine.sim.tick()

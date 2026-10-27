@@ -221,13 +221,16 @@ and `SLM_INFERENCE_PATH=/v1/chat/completions`.
 
 ---
 
-## 6. Local Deployment (Demo Mode)
+## 6. Local Deployment (CPU llama.cpp)
 
-Works **today without GPU** — SLM falls back to tagged demo mode.
+Runs the fine-tuned model **without GPU or a server** (Q4_K_M, ~2.5 GB RAM).
 
 ```bash
-# Terminal 1: API
-uvicorn api.main:app --reload --port 8000
+# One-time: download base GGUF + convert the LoRA adapter
+python scripts/prepare_local_slm.py
+
+# Terminal 1: API (configs/development.yaml -> slm.backend: auto)
+python api/main.py
 
 # Terminal 2: Streamlit
 streamlit run app/streamlit_app.py
@@ -236,8 +239,12 @@ streamlit run app/streamlit_app.py
 Dashboard shows:
 - ✅ Live telemetry simulation
 - ✅ Numerical predictions (RUL, failure probability, health state)
-- ⚠️ SLM analysis in demo mode (banner displayed)
-- ✅ Chat assistant (demo responses)
+- ✅ Fine-tuned SLM analysis (backend shown in the sidebar)
+- ✅ Chat assistant grounded in the current machine context
+
+No model configured? The app shows a clear error and stops. Set
+`SLM_BACKEND=demo` only for tests/offline evaluation; the dashboard banners it
+in red.
 
 ---
 
@@ -274,6 +281,8 @@ Dashboard shows:
 | Drive disconnect | Re-run `drive.mount()`; use persistent Colab (Pro) |
 | Slow generation | Use vLLM endpoint instead of transformers pipeline |
 | Adapter not found | Verify `adapter_path` in config matches Drive/HF location |
+| "No SLM backend is configured" | Run `scripts/prepare_local_slm.py` and set `SLM_MODEL_PATH`, or set `SLM_INFERENCE_ENDPOINT` |
+| `python api/main.py` -> 404 at `/` | Use the current code (adds `GET /`); restart the API |
 | Test metrics not updating | Run `python scripts/compare_slm.py` after copying JSON files |
 
 ---

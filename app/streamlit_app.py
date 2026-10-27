@@ -1,4 +1,4 @@
-"""MaintainAI dashboard — Machine Monitoring Demo (simulated telemetry).
+"""MaintainAI dashboard — maintenance assistant over simulated telemetry.
 
 Normal users see: machine status, key metrics, live charts, AI maintenance
 analysis, chat. Engineers expand Technical details / Evaluation.
@@ -6,22 +6,26 @@ Simulated telemetry — research/demo system, not safety software.
 """
 from __future__ import annotations
 
+import json
+import os
 import sys
+import time
 from pathlib import Path
+
+try:  # Preload before pandas/plotly/streamlit on Windows (DLL conflict).
+    import llama_cpp  # noqa: F401
+except ImportError:
+    pass
+
+import plotly.graph_objects as go
+import streamlit as st
 
 # Ensure project root is in Python path for imports
 PROJECT_ROOT = Path(__file__).parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-import json
-import os
-import time
-
-import plotly.graph_objects as go
-import streamlit as st
-
-from app.services_local import chat, create_services, machine_state
+from app.services_local import chat, create_services, machine_state  # noqa: E402
 
 st.set_page_config(page_title="MaintainAI", layout="wide")
 
@@ -29,13 +33,16 @@ st.set_page_config(page_title="MaintainAI", layout="wide")
 # Bridge the SLM/API settings so src.config sees the same values locally/cloud.
 try:
     for _key in ("SLM_BACKEND", "SLM_INFERENCE_ENDPOINT", "SLM_INFERENCE_PATH",
-                 "SLM_API_KEY", "HF_TOKEN", "SLM_MODEL_NAME", "SLM_ADAPTER_PATH"):
-        if _key in st.secrets and not os.getenv(_key):
+                 "SLM_API_KEY", "HF_TOKEN", "SLM_MODEL_NAME", "SLM_MODEL_PATH",
+                 "SLM_ADAPTER_PATH", "SLM_LORA_SCALE", "SLM_CONSTRAINED",
+                 "SLM_N_CTX", "SLM_N_THREADS", "SLM_N_BATCH",
+                 "SLM_MAX_NEW_TOKENS", "SLM_TEMPERATURE", "SLM_QUANTIZATION"):
+        if _key in st.secrets:
             os.environ[_key] = str(st.secrets[_key])
 except Exception:
     pass
-st.title("MaintainAI — Machine Monitoring Demo")
-st.caption("Simulated telemetry for research/demo. Decision support only — "
+st.title("MaintainAI - Maintenance Assistant")
+st.caption("Simulated telemetry for research/demo. Decision support only - "
            "qualified personnel make all maintenance decisions.")
 
 
@@ -44,7 +51,16 @@ def _services():
     return create_services()
 
 
-svc = _services()
+try:
+    svc = _services()
+except Exception as exc:
+    st.error("The maintenance SLM could not start. This app does not fall back "
+             "to the demo rule mirror.")
+    st.code(f"{type(exc).__name__}: {exc}")
+    st.info("Local: run `python scripts/prepare_local_slm.py` and set "
+            "`SLM_MODEL_PATH` to the GGUF. Cloud: set `SLM_BACKEND=openai` and "
+            "`SLM_INFERENCE_ENDPOINT` in Streamlit secrets.")
+    st.stop()
 for key, default in (("running", False), ("prob_hist", []), ("chat_hist", [])):
     st.session_state.setdefault(key, default)
 
@@ -52,6 +68,10 @@ STATUS_COLOR = {"HEALTHY": "green", "WARNING": "orange", "HIGH_RISK": "red", "CR
 
 with st.sidebar:
     st.header("Machine Simulation")
+    st.caption(f"SLM backend: {svc['slm'].version}")
+    if svc["slm"].version.startswith("demo"):
+        st.error("Demo rule mirror active. Set SLM_MODEL_PATH (local GGUF) or "
+                 "SLM_INFERENCE_ENDPOINT (remote) to use the fine-tuned SLM.")
     machine = st.selectbox("Machine", sorted(svc["sim"].machines))
     if st.session_state.get("active_machine") != machine:
         st.session_state.active_machine = machine
@@ -100,8 +120,11 @@ with tab_monitor:
         st.session_state.prob_hist.append(pred["failure_probability"])
         st.subheader(f"{machine} — :{STATUS_COLOR.get(pred['health_state'], 'gray')}[{pred['health_state']}]")
         if analysis.get("meta", {}).get("demo"):
-            st.warning("AI analysis running in demo mode — the fine-tuned SLM loads in the Colab/GPU "
-                       "deployment. Monitoring and numerical prediction remain fully available.")
+            st.error("Demo rule mirror is active - this is not the fine-tuned SLM. "
+                     "Configure SLM_MODEL_PATH or SLM_INFERENCE_ENDPOINT.")
+        elif not analysis.get("meta", {}).get("valid", True):
+            st.warning("The SLM returned an invalid/empty response; showing a controlled UNKNOWN. "
+                       f"Reason: {analysis.get('meta', {}).get('reason', 'unknown')}")
 
         m1, m2, m3, m4 = st.columns(4)
         m1.metric("Failure probability", f"{pred['failure_probability']:.0%}")
@@ -176,8 +199,8 @@ with tab_eval:
                          "evidence_F1": round(m.get("evidence_f1_mean", 0), 3),
                          "validity": round(m.get("validity_rate", 0), 3)})
         st.table(rows)
-    st.caption("Base-vs-fine-tuned Qwen2.5-3B cells fill in after notebooks 06/08 run in Colab. "
-               "Nothing here is fabricated: pending means unmeasured.")
+    st.caption("Measured locally on CPU with llama.cpp (100 held-out FD001 examples); "
+               "see reports/evaluation_report.md. Nothing here is fabricated.")
 
 if auto and st.session_state.running:
     time.sleep(2)

@@ -1,29 +1,41 @@
 """MaintainAI FastAPI: simulator -> prediction -> context -> SLM -> validation.
 
 Error contract:
-  - SLM unavailable -> analysis field reports demo/unavailable; monitoring +
-    numerical prediction still returned (HTTP 200, never a crash).
+  - No SLM configured -> startup fails with a clear error (never demo fallback).
+  - SLM generation/validation failure -> controlled UNKNOWN analysis, logged.
   - Predictive model unavailable -> HTTP 503, no fabricated prediction.
   - Stale telemetry (no readings yet) -> HTTP 409 TELEMETRY_STALE.
-  - SLM validation failure -> controlled UNKNOWN fallback, logged.
 No stack traces leak to clients.
 """
 from __future__ import annotations
 
+import os
+import sys
 import time
+from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel, Field
+try:  # Preload before pandas/xgboost/FastAPI on Windows (DLL conflict).
+    import llama_cpp  # noqa: F401
+except ImportError:
+    pass
 
-from src.config import load_config
-from src.engine import (
+# Allow `python api/main.py` from the project root (not only `-m api.main`).
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from fastapi import FastAPI, HTTPException  # noqa: E402
+from pydantic import BaseModel, Field  # noqa: E402
+
+from src.config import load_config  # noqa: E402
+from src.engine import (  # noqa: E402
     MaintainAIEngine,
     PredictiveUnavailableError,
     TelemetryStaleError,
     UnknownMachineError,
 )
-from src.simulation import VALID_SCENARIOS
+from src.simulation import VALID_SCENARIOS  # noqa: E402
 
 
 class ScenarioRequest(BaseModel):
@@ -66,6 +78,17 @@ def create_app(config_path: str = "configs/development.yaml") -> FastAPI:
             "analysis": state["analysis"],
             "context_trends": state["trends"],
             "slm_backend": state["backend"],
+        }
+
+    @app.get("/")
+    def root() -> dict:
+        return {
+            "service": "MaintainAI API",
+            "status": "ok",
+            "docs": "/docs",
+            "health": "/health",
+            "machines": "/machines",
+            "chat": "POST /assistant/chat",
         }
 
     @app.get("/health")
@@ -138,3 +161,13 @@ def create_app(config_path: str = "configs/development.yaml") -> FastAPI:
 
 
 app = create_app()
+
+
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run(
+        app,
+        host=os.getenv("API_HOST", "127.0.0.1"),
+        port=int(os.getenv("API_PORT", "8000")),
+    )

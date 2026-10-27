@@ -80,6 +80,10 @@ python -c "from src.slm_grammar import SLM_JSON_GRAMMAR; open('slm_json.gbnf','w
 
 ### In-process (no server)
 
+`configs/development.yaml` already uses `slm.backend: auto` and the paths below,
+so `python api/main.py` / `streamlit run app/streamlit_app.py` work once the
+GGUF files exist. `.env` is loaded automatically; explicit overrides are:
+
 ```powershell
 $env:SLM_BACKEND="llamacpp"
 $env:SLM_MODEL_PATH="models/slm/Qwen2.5-3B-Instruct-Q4_K_M.gguf"
@@ -109,7 +113,6 @@ enums, and confidence range are guaranteed.
 $env:SLM_BACKEND="openai"
 $env:SLM_INFERENCE_ENDPOINT="http://localhost:8001"
 $env:SLM_INFERENCE_PATH="/v1/chat/completions"
-python -m pytest -q
 streamlit run app/streamlit_app.py
 ```
 

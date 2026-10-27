@@ -6,9 +6,8 @@ swapped via config without touching business logic or the UI.
 
 Backends:
   - DemoBackend: deterministic rule-mirror over the machine context, tagged
-    backend='demo-fallback'. Explicitly NOT the fine-tuned SLM — the dashboard
-    must banner it. Exists so monitoring + numerical prediction stay usable
-    where the SLM cannot run.
+    backend='demo-fallback'. Explicitly NOT the fine-tuned SLM and only used
+    when `SLM_BACKEND=demo` is set on purpose (tests / offline demos).
   - TransformersBackend: transformers + 4-bit base + PEFT LoRA adapter
     (Colab/GPU/local). Applies the tokenizer chat template.
   - LlamaCppBackend: CPU-only, in-process quantized GGUF base + optional
@@ -43,6 +42,14 @@ from src.validation import (
 logger = logging.getLogger("maintainai.slm")
 
 Message = dict[str, str]
+
+
+def _as_bool(value: Any, default: bool = False) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in ("1", "true", "yes", "on")
 
 
 class Backend(Protocol):
@@ -176,7 +183,6 @@ class LlamaCppBackend:
 
     def _load(self):
         try:
-            import llama_cpp
             from llama_cpp import Llama
         except ImportError as exc:  # pragma: no cover - depends on optional dep
             raise RuntimeError(
@@ -184,11 +190,6 @@ class LlamaCppBackend:
                 "pip install llama-cpp-python --extra-index-url "
                 "https://abetlen.github.io/llama-cpp-python/whl/cpu"
             ) from exc
-        if not self.verbose:
-            self._log_cb = llama_cpp.llama_log_callback(
-                lambda level, text, user_data: None
-            )
-            llama_cpp.llama_log_set(self._log_cb, None)
         if self.constrained or self.grammar:
             from llama_cpp import LlamaGrammar
             self._grammar = LlamaGrammar.from_string(
@@ -206,9 +207,12 @@ class LlamaCppBackend:
         if self.adapter_path:
             kwargs["lora_path"] = self.adapter_path
             kwargs["lora_scale"] = self.lora_scale
-        self._llm = Llama(**kwargs)
+        from llama_cpp._utils import suppress_stdout_stderr
 
-    def generate(self, messages: list[Message] | str) -> str:
+        with suppress_stdout_stderr(disable=self.verbose):
+            self._llm = Llama(**kwargs)
+
+    def _complete(self, messages: list[Message] | str, grammar: Any = None) -> str:
         if self._llm is None:
             self._load()
         assert self._llm is not None
@@ -221,9 +225,15 @@ class LlamaCppBackend:
             top_p=0.9,
             repeat_penalty=1.05,
             seed=self.seed,
-            grammar=self._grammar,
+            grammar=grammar,
         )
         return str(out["choices"][0]["message"]["content"])
+
+    def generate(self, messages: list[Message] | str) -> str:
+        return self._complete(messages, self._grammar)
+
+    def generate_free(self, messages: list[Message] | str) -> str:
+        return self._complete(messages, None)
 
     def close(self) -> None:
         if self._llm is not None:
@@ -310,35 +320,56 @@ class SLMService:
         logger.debug("slm backend selected: %s", self.version)
 
     def _build_backend(self, slm: dict[str, Any]) -> Backend:
-        kind = str(slm.get("backend") or os.getenv("SLM_BACKEND") or "").strip().lower()
+        kind = str(slm.get("backend") or os.getenv("SLM_BACKEND") or "auto").strip().lower()
         endpoint = slm.get("inference_endpoint") or os.getenv("SLM_INFERENCE_ENDPOINT")
         adapter = slm.get("adapter_path") or os.getenv("SLM_ADAPTER_PATH")
+        model_path = (
+            slm.get("model_path")
+            or slm.get("gguf_path")
+            or os.getenv("SLM_MODEL_PATH")
+        )
         api_key = slm.get("api_key") or os.getenv("SLM_API_KEY") or os.getenv("HF_TOKEN")
+        constrained = _as_bool(
+            slm.get("constrained"),
+            _as_bool(os.getenv("SLM_CONSTRAINED"), False),
+        )
+
+        if kind in ("", "auto"):
+            if endpoint:
+                kind = "openai"
+            elif model_path and Path(str(model_path)).exists():
+                kind = "llamacpp"
+            elif adapter and Path(str(adapter)).exists():
+                kind = "transformers"
+            else:
+                raise RuntimeError(
+                    "No SLM backend is configured. Set SLM_MODEL_PATH to a local "
+                    "GGUF (run scripts/prepare_local_slm.py) or set "
+                    "SLM_INFERENCE_ENDPOINT to a remote OpenAI-compatible endpoint. "
+                    "The demo rule mirror is only available with an explicit "
+                    "SLM_BACKEND=demo."
+                )
 
         if kind in ("llamacpp", "llama.cpp", "llama-cpp", "gguf"):
-            model_path = (
-                slm.get("model_path")
-                or slm.get("gguf_path")
-                or os.getenv("SLM_MODEL_PATH")
-            )
             if not model_path:
-                logger.warning(
-                    "llamacpp backend requested but no model_path/gguf configured; "
-                    "falling back to demo mode"
+                raise RuntimeError(
+                    "llamacpp backend selected but SLM_MODEL_PATH/model_path is not set"
                 )
-                return DemoBackend()
             threads = slm.get("n_threads")
+            lora_scale = slm.get("lora_scale")
+            if lora_scale is None:
+                lora_scale = os.getenv("SLM_LORA_SCALE", 1.0)
             return LlamaCppBackend(
                 str(model_path),
                 adapter_path=adapter,
                 n_ctx=int(slm.get("n_ctx", 2048)),
                 n_threads=int(threads) if threads else None,
                 n_batch=int(slm.get("n_batch", 512)),
-                max_new_tokens=int(slm.get("max_new_tokens", 512)),
+                max_new_tokens=int(slm.get("max_new_tokens", 256)),
                 temperature=float(slm.get("temperature", 0.2)),
                 seed=int(slm.get("seed", 42)),
-                lora_scale=float(slm.get("lora_scale", os.getenv("SLM_LORA_SCALE", 1.0))),
-                constrained=bool(slm.get("constrained", os.getenv("SLM_CONSTRAINED", "").lower() in ("1", "true", "yes"))),
+                lora_scale=float(lora_scale),
+                constrained=constrained,
             )
 
         if kind in ("transformers", "hf", "local"):
@@ -346,35 +377,28 @@ class SLMService:
                 self.model_name,
                 quantization=slm.get("quantization", "4bit"),
                 adapter_path=adapter,
-                max_new_tokens=int(slm.get("max_new_tokens", 512)),
+                max_new_tokens=int(slm.get("max_new_tokens", 256)),
                 temperature=float(slm.get("temperature", 0.2)),
             )
 
-        if kind in ("openai", "remote", "vllm", "llamacpp", "tgi") or (
-            not kind and endpoint
-        ):
+        if kind in ("openai", "remote", "vllm", "tgi"):
             if not endpoint:
-                logger.warning(
-                    "SLM backend '%s' requested but no endpoint configured; "
-                    "falling back to demo mode",
-                    kind or "remote",
+                raise RuntimeError(
+                    "openai backend selected but SLM_INFERENCE_ENDPOINT is not set"
                 )
-                return DemoBackend()
             return OpenAICompatibleBackend(
                 endpoint,
                 model_name=self.model_name,
                 api_key=api_key,
                 inference_path=slm.get("inference_path", "/v1/chat/completions"),
-                max_new_tokens=int(slm.get("max_new_tokens", 512)),
+                max_new_tokens=int(slm.get("max_new_tokens", 256)),
                 temperature=float(slm.get("temperature", 0.2)),
             )
 
-        if adapter:
-            logger.warning(
-                "adapter_path is set but slm.backend is not 'transformers'; "
-                "the adapter will NOT be loaded (using demo fallback)"
-            )
-        return DemoBackend()
+        if kind == "demo":
+            return DemoBackend()
+
+        raise RuntimeError(f"Unknown SLM backend: {kind!r}")
 
     def _messages(self, context: MachineContext) -> list[Message]:
         messages = build_messages(context)
@@ -426,17 +450,18 @@ class SLMService:
                 f"RUL ~{context.prediction.rul_cycles} cycles). "
                 f"Evidence: {', '.join(a['evidence'])}. "
                 f"Recommended action: {a['recommended_action']} "
-                f"(urgency {a['urgency']}). Demo fallback — not the fine-tuned SLM."
+                f"(urgency {a['urgency']}). Demo rule mirror - not the fine-tuned SLM."
             )
             return {"text": text, "meta": {"backend": self.backend.name, "demo": True,
                                            "latency_ms": (time.perf_counter() - t0) * 1000.0}}
         messages = self._messages(context)
         messages[-1]["content"] += (
-            "\n\nAnswer ONLY from the evidence above; say when evidence is "
-            f"insufficient.\nQuestion: {question}"
+            "\n\nAnswer in 1-3 plain-text sentences (not JSON). Answer ONLY from "
+            f"the evidence above; say when evidence is insufficient.\nQuestion: {question}"
         )
         try:
-            text = self._generate(messages)
+            free = getattr(self.backend, "generate_free", None)
+            text = free(messages) if callable(free) else self._generate(messages)
         except Exception as exc:  # noqa: BLE001
             return {"text": "AI analysis temporarily unavailable. Machine monitoring and numerical prediction remain available.",
                     "meta": {"backend": self.backend.name, "valid": False, "reason": type(exc).__name__}}

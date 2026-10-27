@@ -66,11 +66,27 @@ def test_backend_crash_never_raises():
 
 
 def test_demo_backend_tagged_and_valid():
-    svc = SLMService()  # default demo
+    svc = SLMService(config={"slm": {"backend": "demo"}})
     out = svc.analyze(_context())
     assert out["meta"]["demo"] is True and out["meta"]["valid"] is True
     chat = svc.chat("What changed?", _context())
     assert "M001" in chat["text"]
+
+
+class FreeTextBackend:
+    name = "mock-free"
+
+    def generate(self, messages):
+        raise AssertionError("constrained JSON path must not be used for chat")
+
+    def generate_free(self, messages):
+        return "Inspect the HPC outlet temperature sensor."
+
+
+def test_chat_uses_free_text_not_json_grammar():
+    svc = SLMService(backend=FreeTextBackend())
+    out = svc.chat("What should we inspect?", _context())
+    assert out["text"] == "Inspect the HPC outlet temperature sensor."
 
 
 def test_explicit_demo_backend_wins_over_endpoint():
@@ -120,10 +136,10 @@ def test_slm_json_grammar_compiles_after_full_context_build():
     LlamaGrammar.from_string(SLM_JSON_GRAMMAR, verbose=False)
 
 
-def test_llamacpp_without_path_falls_back_to_demo(monkeypatch):
+def test_llamacpp_without_path_raises(monkeypatch):
     monkeypatch.delenv("SLM_MODEL_PATH", raising=False)
-    svc = SLMService(config={"slm": {"backend": "llamacpp"}})
-    assert isinstance(svc.backend, DemoBackend)
+    with pytest.raises(RuntimeError, match="model_path"):
+        SLMService(config={"slm": {"backend": "llamacpp"}})
 
 
 def test_extract_json_none_without_object():

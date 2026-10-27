@@ -5,7 +5,7 @@ from app.services_local import chat, create_services, machine_state
 
 
 def test_dashboard_pipeline_end_to_end():
-    svc = create_services()
+    svc = create_services("configs/test.yaml")
     svc["sim"].start()
     svc["sim"].set_scenario("M001", "DEGRADATION")
     for _ in range(30):

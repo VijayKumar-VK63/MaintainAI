@@ -105,17 +105,17 @@ Traditional ML (XGBoost) is great at **predicting numbers** (RUL, failure probab
 - **Metrics**: Risk accuracy, Condition accuracy, Evidence F1, Recommendation accuracy, Validity rate, Uncertainty skill, Latency
 - **Single evaluation path**: `src.slm_eval.run_service_eval` calls the same `SLMService.analyze` used by the API/dashboard
 - **Commands**: `python -m src.slm_eval --backend demo|hf|llamacpp|openai ...` then `python scripts/compare_slm.py`
-- **Status**: demo-fallback, Qwen2.5-3B base, and 1-epoch LoRA measured locally on CPU (llama.cpp Q4_K_M, grammar-constrained); LoRA is 100% valid with 0.980 risk, 0.730 condition, 0.701 evidence F1; 3-epoch adapter GPU rerun pending
+- **Status**: rule mirror (demo), Qwen2.5-3B base, and 1-epoch LoRA measured locally on CPU (llama.cpp Q4_K_M, grammar-constrained); LoRA is 100% valid with 0.980 risk, 0.730 condition, 0.701 evidence F1; 3-epoch adapter GPU rerun pending
 
 ### ✅ Phase 8: Simulator & FastAPI
 - **Physics-grounded simulator** — FD001 sensor baselines + degradation drift patterns
 - **Scenarios**: NORMAL → DEGRADATION → CRITICAL → FAILURE (deterministic per seed)
-- **FastAPI endpoints**: `/machines`, `/machines/{id}`, `/simulation/*`, `/assistant/chat`
-- **Error contract**: SLM failure → demo fallback (HTTP 200), Predictive failure → HTTP 503, Stale telemetry → HTTP 409
+- **FastAPI endpoints**: `/`, `/health`, `/machines`, `/machines/{id}`, `/simulation/*`, `/assistant/chat`
+- **Error contract**: no SLM configured → clear startup error (never demo fallback); SLM validation failure → controlled UNKNOWN (HTTP 200); predictive failure → HTTP 503; stale telemetry → HTTP 409
 
 ### ✅ Phase 9: Context Builder & SLM Service
 - **ContextBuilder** — Single source of truth for prompt construction
-- **SLMService** — Backend protocol (HFBackend, RemoteBackend, DemoBackend)
+- **SLMService** — Backend protocol (LlamaCppBackend, TransformersBackend, OpenAICompatibleBackend; DemoBackend only when explicitly requested)
 - **Structured output validation** — Pydantic + retry + controlled fallback
 - **Chat assistant** — Grounded in current machine context
 
@@ -127,10 +127,10 @@ Traditional ML (XGBoost) is great at **predicting numbers** (RUL, failure probab
 - **About Tab** — Complete architecture documentation
 
 ### ✅ Phase 11: Deployment Ready
-- **Local demo** — CPU-only, SLM falls back to demo mode with banner
-- **Local fine-tuned inference** — llama.cpp / vLLM / TGI via the OpenAI-compatible backend
-- **Production** — Streamlit Cloud (dashboard) + HF Inference Endpoint or llama.cpp (SLM)
-- **Config-driven** — `slm.backend` = `demo` | `transformers` | `openai`; endpoints and keys come from env/secrets
+- **Local fine-tuned SLM** — CPU-only llama.cpp with the quantized GGUF + LoRA, in-process (default `auto`)
+- **Remote SLM** — vLLM / TGI / llama-server / HF Inference Endpoint via the OpenAI-compatible backend
+- **Production** — Streamlit Cloud (dashboard) + hosted SLM endpoint (the cloud cannot run the 1.8 GB local GGUF)
+- **Config-driven** — `slm.backend` = `auto` | `llamacpp` | `transformers` | `openai`; `demo` only for tests; endpoints and keys come from env/secrets
 
 ---
 
@@ -144,17 +144,17 @@ Traditional ML (XGBoost) is great at **predicting numbers** (RUL, failure probab
 | **API** | FastAPI, Pydantic, Uvicorn |
 | **UI** | Streamlit, Plotly |
 | **Config** | YAML, python-dotenv |
-| **Testing** | pytest (46 passing, 1 optional network test skipped) |
+| **Testing** | pytest (all tests pass; demo test config, optional network test skipped) |
 | **Inference** | Transformers+PEFT, llama.cpp, vLLM, TGI, HF Inference Endpoints |
 
 ---
 
-## 🚀 Quickstart (Local CPU Demo)
+## 🚀 Quickstart (Local CPU, fine-tuned SLM)
 
 ### Prerequisites
 - Python 3.9+
 - Git
-- 4GB+ RAM
+- ~4 GB free RAM (the 3B Q4_K_M model uses ~2.5 GB at 2048 context)
 
 ### Installation
 ```bash
@@ -162,54 +162,61 @@ Traditional ML (XGBoost) is great at **predicting numbers** (RUL, failure probab
 git clone https://github.com/VijayKumar-VK63/MaintainAI.git
 cd MaintainAI
 
-# Install dependencies
+# Install dependencies (includes llama-cpp-python CPU wheel guidance)
 pip install -r requirements.txt
 
-# Verify installation
+# Download base GGUF + convert the LoRA adapter once (~1.9 GB)
+python scripts/prepare_local_slm.py
+
+# Verify installation (fast tests use configs/test.yaml -> demo backend)
 pytest -q
-# Should show: 45 passed, 1 skipped
 ```
 
-### Run the Demo (2 Terminals)
+`.env` is loaded automatically (see `.env.example`); `configs/development.yaml`
+uses `slm.backend: auto`, which selects the local GGUF when present and a
+remote endpoint when `SLM_INFERENCE_ENDPOINT` is set. There is no silent demo
+fallback: if neither is available, startup fails with a clear message.
+
+### Run (2 Terminals)
 
 **Terminal 1 — API Server:**
 ```bash
-cd MaintainAI
-uvicorn api.main:app --reload --port 8000
+python api/main.py
+# or: uvicorn api.main:app --reload --port 8000
 ```
 
 **Terminal 2 — Streamlit Dashboard:**
 ```bash
-cd MaintainAI
-# Windows PowerShell:
-$env:PYTHONPATH="C:\path\to\MaintainAI"; streamlit run app/streamlit_app.py
-
-# Linux/Mac:
-PYTHONPATH=/path/to/MaintainAI streamlit run app/streamlit_app.py
+streamlit run app/streamlit_app.py
 ```
 
-### Access the Dashboard
-- **API Health**: http://127.0.0.1:8000/health
+### Access
+- **API root**: http://127.0.0.1:8000/
+- **API docs**: http://127.0.0.1:8000/docs
+- **API health**: http://127.0.0.1:8000/health
 - **Dashboard**: http://localhost:8501
 
 ---
 
 ## ☁️ Streamlit Cloud Deployment (Free)
 
-Deploy the dashboard directly to Streamlit Community Cloud — no Docker, no GPU needed.
+Deploy the dashboard directly to Streamlit Community Cloud — no Docker. The
+free tier cannot run the local 3B GGUF (memory and gitignored `models/slm/`),
+so you must point it at a hosted OpenAI-compatible SLM endpoint.
 
 ### One-Click Deploy
 1. Fork this repository
 2. Go to [share.streamlit.io](https://share.streamlit.io)
 3. Click "New app" → Select your fork → Main branch → `app/streamlit_app.py`
-4. Click "Deploy"
+4. Add the secrets below, then click "Deploy"
 
 ### How It Works on Streamlit Cloud
 - **Predictive model (XGBoost)** — Runs locally on CPU with no external server.
   Commit the small `models/predictive/*.joblib` artifacts (no longer gitignored).
-- **SLM (Qwen2.5-3B+LoRA)** — Uses **demo fallback** unless an endpoint is configured
-  - Publish your LoRA adapter to the HF Hub and serve it with llama.cpp/vLLM/TGI
-    or an HF Inference Endpoint, then set the secrets below
+- **SLM (Qwen2.5-3B+LoRA)** — Requires a hosted endpoint. Serve the adapter with
+  llama.cpp/vLLM/TGI or an HF Inference Endpoint, then set the secrets below.
+  Without an endpoint the app shows an explicit error and stops; it does not
+  switch to the demo rule mirror.
 - **Simulator** — Generates realistic FD001 telemetry in real-time
 
 ### Streamlit Secrets
@@ -224,7 +231,10 @@ SLM_API_KEY = "hf_xxxxxxxxxxxx"
 HF_TOKEN = "hf_xxxxxxxxxxxx"
 ```
 
-> **Note**: Without an endpoint, the app runs in **demo mode** — numerical predictions (RUL, failure probability) are fully functional; AI analysis uses a rule-based fallback that mirrors the predictive model's outputs. With `SLM_BACKEND=transformers`, the app loads the adapter locally (GPU/Colab only).
+> **Note**: `SLM_BACKEND=demo` is only for tests/offline evaluation; it is not
+> the fine-tuned SLM and the dashboard banners it in red. With
+> `SLM_BACKEND=transformers`, the app loads the PEFT adapter locally (GPU/Colab
+> only).
 
 ---
 
@@ -270,7 +280,7 @@ MaintainAI/
 │   ├── engine.py           # Single telemetry→prediction→analysis pipeline
 │   ├── slm_dataset.py      # Grounded instruction dataset generator
 │   ├── slm_eval.py         # Held-out evaluation (production path)
-│   ├── slm_service.py      # SLMService + Demo/Transformers/OpenAI backends
+│   ├── slm_service.py      # SLMService + LlamaCpp/Transformers/OpenAI backends
 │   ├── train_slm.py        # QLoRA training script (Colab)
 │   ├── validation.py       # SLM output validation + fallback
 │   ├── knowledge.py        # YAML knowledge loader (failure modes, actions)
@@ -290,7 +300,7 @@ MaintainAI/
 ├── models/                 # Saved models (predictive + SLM adapter)
 ├── knowledge/              # YAML knowledge base
 ├── scripts/                # compare_slm.py and utilities
-├── tests/                  # 45 pytest tests (unit + integration)
+├── tests/                  # pytest tests (unit + integration; configs/test.yaml)
 ├── docs/                   # Documentation
 └── reports/                # Evaluation metrics + comparison tables
 ```
@@ -301,13 +311,18 @@ MaintainAI/
 
 ### Environment Variables (`.env`)
 ```bash
-# Copy .env.example to .env and fill in
-SLM_BACKEND=demo                          # demo | transformers | llamacpp | openai
+# Copy .env.example to .env and fill in (loaded automatically)
+SLM_BACKEND=auto                          # auto | llamacpp | transformers | openai | demo (tests only)
 SLM_MODEL_NAME=Qwen/Qwen2.5-3B-Instruct
-SLM_MODEL_PATH=                           # Base .gguf when SLM_BACKEND=llamacpp
-SLM_ADAPTER_PATH=                         # PEFT dir or GGUF LoRA
+SLM_MODEL_PATH=models/slm/Qwen2.5-3B-Instruct-Q4_K_M.gguf
+SLM_ADAPTER_PATH=models/slm/maintainai-qwen2.5-3b-lora.gguf
 SLM_LORA_SCALE=1.0                        # llama.cpp LoRA multiplier
 SLM_CONSTRAINED=true                      # Force schema-valid JSON (GBNF)
+SLM_N_CTX=2048                            # llama.cpp context
+SLM_N_THREADS=                            # blank = llama.cpp default
+SLM_N_BATCH=512
+SLM_MAX_NEW_TOKENS=256
+SLM_TEMPERATURE=0.2
 SLM_INFERENCE_ENDPOINT=                   # Used when SLM_BACKEND=openai
 SLM_INFERENCE_PATH=/v1/chat/completions   # llama.cpp/vLLM/TGI (use /generate for TGI)
 SLM_API_KEY=                              # Bearer token (falls back to HF_TOKEN)
@@ -319,15 +334,17 @@ MODEL_DIR=models
 ### SLM Backend Modes
 | Mode | When to use | What loads |
 |------|-------------|------------|
-| `demo` | Default local/CPU/Streamlit Cloud | Rule-based mirror, clearly bannered |
-| `llamacpp` | CPU-only local, no GPU/server | Quantized GGUF + optional GGUF LoRA, in-process, optional GBNF JSON grammar |
+| `auto` | Default local/dev/cloud | Remote endpoint if set, else existing local GGUF, else transformers adapter; otherwise a clear startup error |
+| `llamacpp` | CPU-only local, no GPU/server | Quantized GGUF + optional GGUF LoRA, in-process, GBNF JSON grammar |
 | `transformers` | Colab/GPU/local with adapter | 4-bit Qwen + PEFT adapter |
-| `openai` | llama.cpp, vLLM, TGI, HF endpoint | HTTP chat-completions backend |
+| `openai` | llama.cpp server, vLLM, TGI, HF endpoint | HTTP chat-completions backend |
+| `demo` | Tests/offline evaluation only | Rule-based mirror, clearly bannered in red; never a silent fallback |
 
 ### Config Files
 | File | Purpose |
 |------|---------|
-| `configs/development.yaml` | Local dev (demo backend) |
+| `configs/development.yaml` | Local/dev/API (`auto`, local GGUF, constrained) |
+| `configs/test.yaml` | Fast tests (`demo`, no model load) |
 | `configs/training.yaml` | Colab QLoRA training (3 epochs) |
 | `configs/deployment.yaml` | Production (OpenAI-compatible endpoint) |
 
@@ -394,7 +411,7 @@ python scripts/compare_slm.py
 ### SLM Comparison (Same 100 Scenarios)
 | System | Risk Acc | Cond Acc | Evidence F1 | Validity | Status |
 |--------|----------|----------|-------------|----------|--------|
-| Demo Fallback | 1.000 | 0.730 | 0.235 | 1.000 | ✅ Measured |
+| Rule mirror (demo) | 1.000 | 0.730 | 0.235 | 1.000 | ✅ Measured |
 | Qwen2.5-3B Base (Q4_K_M, CPU, grammar) | 0.650 | 0.590 | 0.000 | 0.800 | ✅ Measured |
 | Qwen2.5-3B + LoRA (Q4_K_M, CPU, grammar) | 0.980 | 0.730 | 0.701 | 1.000 | ✅ Measured |
 
@@ -419,9 +436,10 @@ server. Prepare the GGUF files once:
 ```bash
 python scripts/prepare_local_slm.py   # clone llama.cpp, download base, convert LoRA
 ```
-In-process (used by the dashboard and `src.slm_eval`):
+In-process (default `auto` selects it when the GGUF exists):
 ```bash
-export SLM_BACKEND=llamacpp
+# configs/development.yaml already points at the files below
+export SLM_BACKEND=llamacpp              # optional explicit override
 export SLM_MODEL_PATH=models/slm/Qwen2.5-3B-Instruct-Q4_K_M.gguf
 export SLM_ADAPTER_PATH=models/slm/maintainai-qwen2.5-3b-lora.gguf
 export SLM_CONSTRAINED=true
@@ -450,8 +468,8 @@ export SLM_API_KEY=hf_xxxxxxxxxxxx
 export SLM_INFERENCE_PATH=/v1/chat/completions
 ```
 
-The dashboard/API banner reports which backend is active (`slm_backend`).
-No endpoint configured -> demo fallback with a visible warning.
+The dashboard/API reports which backend is active (`slm_backend`).
+No backend configured -> clear startup error, never a silent demo fallback.
 
 ---
 
@@ -493,7 +511,7 @@ No endpoint configured -> demo fallback with a visible warning.
 | **Single fault mode (FD001)** | HPC degradation only; no multi-fault generalization |
 | **Dataset-dependent** | Predictions only valid for similar turbofan profiles |
 | **Free-tier HF endpoint** | Rate limits, cold starts, no SLA |
-| **Demo mode locally** | SLM falls back to rule-based mirror on CPU |
+| **CPU latency** | Local 3B Q4_K_M takes ~12 s per constrained analysis on this CPU |
 | **Not safety-certified** | Decision support only — humans make maintenance decisions |
 
 ---

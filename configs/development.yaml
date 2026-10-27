@@ -1,11 +1,12 @@
 slm:
   model_name: "Qwen/Qwen2.5-3B-Instruct"
-  # demo | transformers | llamacpp | openai (openai = remote vLLM/TGI/HF endpoint)
-  backend: "demo"
+  # auto -> remote endpoint if set, else local GGUF, else transformers adapter.
+  # Explicit: llamacpp | openai | transformers | demo (demo is for tests only).
+  backend: "auto"
   quantization: "4bit"
-  adapter_path: null
+  adapter_path: "models/slm/maintainai-qwen2.5-3b-lora.gguf"
   # llamacpp backend (CPU): quantized base GGUF + optional GGUF LoRA
-  model_path: null
+  model_path: "models/slm/Qwen2.5-3B-Instruct-Q4_K_M.gguf"
   n_ctx: 2048
   n_threads: null
   n_batch: 512
@@ -18,7 +19,7 @@ slm:
   inference_path: "/v1/chat/completions"
   api_key: ""
   include_knowledge: false
-  max_new_tokens: 512
+  max_new_tokens: 256
   temperature: 0.2
   max_seq_length: 1024
   trust_remote_code: false
