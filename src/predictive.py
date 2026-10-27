@@ -21,7 +21,7 @@ import pandas as pd
 from sklearn.linear_model import Ridge
 from sklearn.metrics import f1_score, mean_absolute_error, mean_squared_error, precision_score, recall_score, roc_auc_score
 
-from src.features import apply_scaler, build_features
+from src.features import build_features
 
 MODEL_VERSION = "rul-xgb-clf-v1"
 RUL_CAP = 125

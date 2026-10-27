@@ -11,6 +11,8 @@ Backends:
     where the SLM cannot run.
   - TransformersBackend: transformers + 4-bit base + PEFT LoRA adapter
     (Colab/GPU/local). Applies the tokenizer chat template.
+  - LlamaCppBackend: CPU-only, in-process quantized GGUF base + optional
+    GGUF LoRA through llama-cpp-python. No GPU or server required.
   - OpenAICompatibleBackend: llama.cpp / vLLM / TGI / OpenAI-compatible HTTP,
     with optional bearer auth.
 
@@ -23,6 +25,7 @@ from __future__ import annotations
 import logging
 import os
 import time
+from pathlib import Path
 from typing import Any, Protocol
 
 from src.context_builder import render_prompt
@@ -30,6 +33,7 @@ from src.knowledge import KnowledgeService
 from src.predictive import health_state
 from src.prompts import build_messages, render_chat
 from src.schemas import MachineContext, SLMAnalysis
+from src.slm_grammar import SLM_JSON_GRAMMAR
 from src.validation import (
     controlled_fallback,
     extract_json,
@@ -137,6 +141,96 @@ class TransformersBackend:
 HFBackend = TransformersBackend
 
 
+class LlamaCppBackend:
+    """Native llama.cpp backend: quantized GGUF base + optional GGUF LoRA.
+
+    CPU-friendly alternative to the 4-bit transformers backend, which needs
+    bitsandbytes + a CUDA GPU. Loads lazily, so importing this module never
+    requires llama-cpp-python.
+    """
+
+    def __init__(self, model_path: str, adapter_path: str | None = None,
+                 n_ctx: int = 2048, n_threads: int | None = None,
+                 n_batch: int = 512, max_new_tokens: int = 512,
+                 temperature: float = 0.2, seed: int = 42,
+                 lora_scale: float = 1.0, constrained: bool = False,
+                 grammar: str | None = None, verbose: bool = False):
+        self.model_path = model_path
+        self.adapter_path = adapter_path
+        self.n_ctx = n_ctx
+        self.n_threads = n_threads
+        self.n_batch = n_batch
+        self.max_new_tokens = max_new_tokens
+        self.temperature = temperature
+        self.seed = seed
+        self.lora_scale = lora_scale
+        self.constrained = constrained
+        self.grammar = grammar
+        self.verbose = verbose
+        name = f"llamacpp:{Path(model_path).name}"
+        if adapter_path:
+            name += f"+{Path(adapter_path).name}"
+        self.name = name
+        self._llm = None
+        self._grammar = None
+
+    def _load(self):
+        try:
+            import llama_cpp
+            from llama_cpp import Llama
+        except ImportError as exc:  # pragma: no cover - depends on optional dep
+            raise RuntimeError(
+                "llama-cpp-python is not installed. Install the CPU wheel with: "
+                "pip install llama-cpp-python --extra-index-url "
+                "https://abetlen.github.io/llama-cpp-python/whl/cpu"
+            ) from exc
+        if not self.verbose:
+            self._log_cb = llama_cpp.llama_log_callback(
+                lambda level, text, user_data: None
+            )
+            llama_cpp.llama_log_set(self._log_cb, None)
+        if self.constrained or self.grammar:
+            from llama_cpp import LlamaGrammar
+            self._grammar = LlamaGrammar.from_string(
+                self.grammar or SLM_JSON_GRAMMAR, verbose=self.verbose
+            )
+        kwargs: dict[str, Any] = {
+            "model_path": self.model_path,
+            "n_ctx": self.n_ctx,
+            "n_batch": self.n_batch,
+            "seed": self.seed,
+            "verbose": self.verbose,
+        }
+        if self.n_threads:
+            kwargs["n_threads"] = self.n_threads
+        if self.adapter_path:
+            kwargs["lora_path"] = self.adapter_path
+            kwargs["lora_scale"] = self.lora_scale
+        self._llm = Llama(**kwargs)
+
+    def generate(self, messages: list[Message] | str) -> str:
+        if self._llm is None:
+            self._load()
+        assert self._llm is not None
+        if isinstance(messages, str):
+            messages = [{"role": "user", "content": messages}]
+        out = self._llm.create_chat_completion(
+            messages=messages,
+            max_tokens=self.max_new_tokens,
+            temperature=self.temperature,
+            top_p=0.9,
+            repeat_penalty=1.05,
+            seed=self.seed,
+            grammar=self._grammar,
+        )
+        return str(out["choices"][0]["message"]["content"])
+
+    def close(self) -> None:
+        if self._llm is not None:
+            self._llm.close()
+            self._llm = None
+
+
 class OpenAICompatibleBackend:
     """HTTP backend for llama.cpp / vLLM / TGI / OpenAI-style endpoints."""
 
@@ -220,6 +314,32 @@ class SLMService:
         endpoint = slm.get("inference_endpoint") or os.getenv("SLM_INFERENCE_ENDPOINT")
         adapter = slm.get("adapter_path") or os.getenv("SLM_ADAPTER_PATH")
         api_key = slm.get("api_key") or os.getenv("SLM_API_KEY") or os.getenv("HF_TOKEN")
+
+        if kind in ("llamacpp", "llama.cpp", "llama-cpp", "gguf"):
+            model_path = (
+                slm.get("model_path")
+                or slm.get("gguf_path")
+                or os.getenv("SLM_MODEL_PATH")
+            )
+            if not model_path:
+                logger.warning(
+                    "llamacpp backend requested but no model_path/gguf configured; "
+                    "falling back to demo mode"
+                )
+                return DemoBackend()
+            threads = slm.get("n_threads")
+            return LlamaCppBackend(
+                str(model_path),
+                adapter_path=adapter,
+                n_ctx=int(slm.get("n_ctx", 2048)),
+                n_threads=int(threads) if threads else None,
+                n_batch=int(slm.get("n_batch", 512)),
+                max_new_tokens=int(slm.get("max_new_tokens", 512)),
+                temperature=float(slm.get("temperature", 0.2)),
+                seed=int(slm.get("seed", 42)),
+                lora_scale=float(slm.get("lora_scale", os.getenv("SLM_LORA_SCALE", 1.0))),
+                constrained=bool(slm.get("constrained", os.getenv("SLM_CONSTRAINED", "").lower() in ("1", "true", "yes"))),
+            )
 
         if kind in ("transformers", "hf", "local"):
             return TransformersBackend(
@@ -334,6 +454,7 @@ __all__ = [
     "DemoBackend",
     "TransformersBackend",
     "HFBackend",
+    "LlamaCppBackend",
     "OpenAICompatibleBackend",
     "RemoteBackend",
     "SLMService",

@@ -1,6 +1,15 @@
 """MaintainAI: End-to-end predictive maintenance with fine-tuned SLM."""
 from __future__ import annotations
 
+# Preload llama.cpp's shared libraries before pandas/pyarrow/torch. On Windows,
+# loading them after those packages causes an access violation in
+# llama_backend_init() due to conflicting DLLs. Optional dependency: skip if
+# llama-cpp-python is not installed.
+try:  # pragma: no cover - depends on optional dependency
+    import llama_cpp as _llama_cpp  # noqa: F401
+except ImportError:  # pragma: no cover
+    pass
+
 __version__ = "0.1.0"
 
 from src.config import load_config
@@ -43,6 +52,7 @@ from src.slm_service import (
     SLMService,
     HFBackend,
     TransformersBackend,
+    LlamaCppBackend,
     DemoBackend,
     OpenAICompatibleBackend,
     RemoteBackend,
@@ -94,6 +104,7 @@ __all__ = [
     "SLMService",
     "HFBackend",
     "TransformersBackend",
+    "LlamaCppBackend",
     "DemoBackend",
     "OpenAICompatibleBackend",
     "RemoteBackend",

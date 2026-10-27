@@ -1,9 +1,19 @@
 slm:
   model_name: "Qwen/Qwen2.5-3B-Instruct"
-  # demo | transformers | openai (openai = llama.cpp/vLLM/TGI/HF endpoint)
+  # demo | transformers | llamacpp | openai (openai = remote vLLM/TGI/HF endpoint)
   backend: "demo"
   quantization: "4bit"
   adapter_path: null
+  # llamacpp backend (CPU): quantized base GGUF + optional GGUF LoRA
+  model_path: null
+  n_ctx: 2048
+  n_threads: null
+  n_batch: 512
+  seed: 42
+  # llama.cpp LoRA multiplier (1.0 = alpha/rank as stored in the adapter)
+  lora_scale: 1.0
+  # Force schema-valid JSON via GBNF grammar (recommended for production)
+  constrained: true
   inference_endpoint: ""
   inference_path: "/v1/chat/completions"
   api_key: ""

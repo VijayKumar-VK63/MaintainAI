@@ -17,3 +17,5 @@ requests>=2.31
 peft>=0.12
 # Colab/GPU-only (installed in notebook 07, NOT locally):
 # transformers (already present), trl, accelerate, bitsandbytes, datasets
+# Local CPU inference (optional; also `pip install gguf sentencepiece`):
+# llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu

@@ -4,7 +4,7 @@ import pytest
 from src.context_builder import build_context
 from src.schemas import Prediction, Telemetry
 from src.slm_eval import _evidence_f1, run_harness
-from src.slm_service import DemoBackend, SLMService
+from src.slm_service import DemoBackend, LlamaCppBackend, SLMService
 from src.validation import controlled_fallback, extract_json
 
 
@@ -77,6 +77,52 @@ def test_explicit_demo_backend_wins_over_endpoint():
     svc = SLMService(config={"slm": {
         "backend": "demo", "inference_endpoint": "http://example.invalid",
     }})
+    assert isinstance(svc.backend, DemoBackend)
+
+
+def test_llamacpp_backend_selected_from_config():
+    svc = SLMService(config={"slm": {
+        "backend": "llamacpp", "model_path": "base.gguf",
+        "adapter_path": "lora.gguf", "n_threads": 4, "lora_scale": 0.5,
+        "constrained": True,
+    }})
+    assert isinstance(svc.backend, LlamaCppBackend)
+    assert svc.backend.adapter_path == "lora.gguf"
+    assert svc.backend.n_threads == 4
+    assert svc.backend.lora_scale == 0.5
+    assert svc.backend.constrained is True
+    assert svc.version == "llamacpp:base.gguf+lora.gguf"
+
+
+def test_llamacpp_close_before_load_is_noop():
+    LlamaCppBackend("base.gguf").close()
+
+
+def test_slm_json_grammar_compiles():
+    pytest.importorskip("llama_cpp")
+    from llama_cpp import LlamaGrammar
+
+    from src.slm_grammar import SLM_JSON_GRAMMAR
+
+    assert "CRITICAL" in SLM_JSON_GRAMMAR
+    assert "IMMEDIATE" in SLM_JSON_GRAMMAR
+    LlamaGrammar.from_string(SLM_JSON_GRAMMAR)
+
+
+def test_slm_json_grammar_compiles_after_full_context_build():
+    pytest.importorskip("llama_cpp")
+    from llama_cpp import LlamaGrammar
+
+    from src.slm_eval import build_live_contexts
+    from src.slm_grammar import SLM_JSON_GRAMMAR
+
+    build_live_contexts(1)
+    LlamaGrammar.from_string(SLM_JSON_GRAMMAR, verbose=False)
+
+
+def test_llamacpp_without_path_falls_back_to_demo(monkeypatch):
+    monkeypatch.delenv("SLM_MODEL_PATH", raising=False)
+    svc = SLMService(config={"slm": {"backend": "llamacpp"}})
     assert isinstance(svc.backend, DemoBackend)
 
 

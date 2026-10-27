@@ -12,6 +12,14 @@ Metrics over data/slm/test.jsonl (100 decision-point scenarios):
 
 Usage (local, demo backend):
     python -m src.slm_eval --backend demo --out reports/metrics_demo.json
+Usage (local CPU, quantized GGUF + LoRA):
+    python -m src.slm_eval --backend llamacpp \
+        --gguf models/slm/Qwen2.5-3B-Instruct-Q4_K_M.gguf \
+        --adapter models/slm/maintainai-qwen2.5-3b-lora.gguf \
+        --out reports/metrics_finetuned.json
+    Use --limit N for a subset, --n-threads N for CPU threads, and
+    --lora-scale to adjust adapter strength (1.0 = alpha/rank).
+    Add --constrained to force schema-valid JSON with a GBNF grammar.
 Usage (Colab/GPU, real model):
     python -m src.slm_eval --backend hf --adapter ... --out reports/metrics_finetuned.json
 The harness calls service.analyze(context) — the same path used in production.
@@ -45,12 +53,14 @@ def run_harness(examples: list[dict], analyze_fn: Callable[[dict], dict]) -> dic
     unk_total = unk_humble = known_total = known_conf = 0
     lat: list[float] = []
     failures: list[dict] = []
+    errors = 0
     for i, e in enumerate(examples):
         ref = json.loads(e["target"])
         t0 = time.perf_counter()
         try:
             out = analyze_fn(e)
         except Exception as exc:  # noqa: BLE001 — harness records, never stops
+            errors += 1
             failures.append({"i": i, "error": type(exc).__name__})
             continue
         lat.append((time.perf_counter() - t0) * 1000.0)
@@ -84,6 +94,7 @@ def run_harness(examples: list[dict], analyze_fn: Callable[[dict], dict]) -> dic
         },
         "latency_mean_ms": sum(lat) / len(lat) if lat else 0.0,
         "n_failures": len(failures),
+        "n_errors": errors,
     }
 
 
@@ -113,8 +124,11 @@ def build_live_contexts(n_engines: int | None = None):
     from src.slm_dataset import KNOWN_CONDITIONS
 
     _, te, _ = load_fd001("CMAPSSData")
-    refs = {json.loads(l)["meta"]["engine"]: json.loads(l)["target"]
-            for l in open("data/slm/test.jsonl", encoding="utf-8")}
+    refs = {}
+    with open("data/slm/test.jsonl", encoding="utf-8") as fh:
+        for line in fh:
+            obj = json.loads(line)
+            refs[obj["meta"]["engine"]] = obj["target"]
     pred_svc = PredictionService("models/predictive")
     raw_cols = ["unit", "cycle", "op1", "op2", "op3"] + SENSOR_COLS
     contexts: list[MachineContext] = []
@@ -158,23 +172,53 @@ def run_service_eval(service, n_engines: int | None = None) -> dict:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--backend", choices=["demo", "hf", "openai"], default="demo")
+    ap.add_argument(
+        "--backend", choices=["demo", "hf", "llamacpp", "openai"], default="demo"
+    )
     ap.add_argument("--model", default="Qwen/Qwen2.5-3B-Instruct")
     ap.add_argument("--adapter", default=None)
+    ap.add_argument("--gguf", default=None, help="Path to a quantized base .gguf")
     ap.add_argument("--endpoint", default=None)
     ap.add_argument("--api-key", default=None)
     ap.add_argument("--inference-path", default="/v1/chat/completions")
+    ap.add_argument("--n-ctx", type=int, default=2048)
+    ap.add_argument("--n-threads", type=int, default=None)
+    ap.add_argument("--n-batch", type=int, default=512)
+    ap.add_argument("--lora-scale", type=float, default=1.0,
+                    help="llama.cpp LoRA scale (default 1.0 = alpha/rank)")
+    ap.add_argument("--constrained", action="store_true",
+                    help="Constrain output to the SLMAnalysis JSON grammar")
+    ap.add_argument("--max-new-tokens", type=int, default=160)
     ap.add_argument("--limit", type=int, default=None)
     ap.add_argument("--out", default="reports/metrics_demo.json")
     args = ap.parse_args()
 
     from src.slm_service import (
         HFBackend,
+        LlamaCppBackend,
         OpenAICompatibleBackend,
         SLMService,
     )
 
-    if args.backend == "hf":
+    if args.backend == "llamacpp":
+        model_path = args.gguf or args.model
+        if not model_path.lower().endswith(".gguf"):
+            raise SystemExit("--gguf is required for --backend llamacpp")
+        svc = SLMService(
+            config={"slm": {"model_name": Path(model_path).stem}},
+            backend=LlamaCppBackend(
+                model_path,
+                adapter_path=args.adapter,
+                n_ctx=args.n_ctx,
+                n_threads=args.n_threads,
+                n_batch=args.n_batch,
+                max_new_tokens=args.max_new_tokens,
+                temperature=0.2,
+                lora_scale=args.lora_scale,
+                constrained=args.constrained,
+            ),
+        )
+    elif args.backend == "hf":
         svc = SLMService(
             config={"slm": {"model_name": args.model}},
             backend=HFBackend(args.model, adapter_path=args.adapter),
@@ -200,6 +244,9 @@ def main() -> None:
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(metrics, indent=1))
     print(json.dumps(metrics, indent=1))
+    close = getattr(svc.backend, "close", None)
+    if close:
+        close()
 
 
 if __name__ == "__main__":

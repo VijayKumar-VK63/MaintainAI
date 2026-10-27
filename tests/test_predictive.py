@@ -1,5 +1,4 @@
 """Phase 3 tests: service interface, bounds, determinism, health bands."""
-import pandas as pd
 
 from src.data_cmapss import SENSOR_COLS, load_fd001
 from src.predictive import PredictionService, health_state
